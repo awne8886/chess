@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="Wave your phone over any 2D chessboard on a screen. The board locks on by itself, the pieces are read, and Stockfish's best move is drawn on it live. 100% on-device.">
+<meta name="description" content="Point your phone at any 2D chessboard on a screen, hand-held. The position is snapped and read at once, Stockfish's best move is drawn on it, and moves and new positions are picked up live. 100% on-device.">
 <title>ChessLens · Live Board Lens</title>
 <style>
   :root{
@@ -38,11 +38,14 @@
 
   /* ---------- camera / demo stage + AR overlay ---------- */
   #stage{position:fixed;inset:0;overflow:hidden;background:radial-gradient(120% 80% at 50% 20%,#141a2b 0%,#05070d 70%)}
-  #camView,#simView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  #camView{position:absolute;inset:0;width:100%;height:100%;display:block}
   /* the <video> only feeds pixels; what you see is drawn from the same frames the CV reads, so the overlay can never drift */
   #cam{position:absolute;left:0;top:0;width:4px;height:4px;opacity:.01;pointer-events:none}
   #ar{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;opacity:0;transition:opacity .1s linear}
   #ar.on{opacity:1}
+  /* "photo taken": the board flashes white in the live view when a snapshot is read */
+  #arQuad.snap{animation:snap .45s ease-out}
+  @keyframes snap{0%{fill:rgba(255,255,255,.7);stroke:#fff}100%{fill:rgba(45,255,196,.05)}}
 
   .glass{background:var(--glass);border:1px solid var(--glass-b);
     -webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);
@@ -182,7 +185,6 @@
 <div id="stage">
   <video id="cam" playsinline muted autoplay disablepictureinpicture></video>
   <canvas id="camView" hidden></canvas>
-  <canvas id="simView" hidden></canvas>
   <svg id="ar" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -209,10 +211,10 @@
 
 <section id="intro">
   <h1>Chess<span>Lens</span></h1>
-  <p>Wave your phone over any 2D chessboard on a monitor, tablet or laptop. The grid locks on by itself, the pieces are read, and Stockfish's best move appears as a live neon arrow. Everything runs on your phone.</p>
+  <p>Point your phone at any 2D chessboard on a monitor, tablet or laptop. Hand-held is fine: it snaps the position the moment it sees the board, draws Stockfish's best move on it, and keeps watching for moves and new positions. Everything runs on your phone.</p>
   <ol class="glass">
     <li>Tap <b>▶</b> and allow the rear camera.</li>
-    <li>Point it at the board. No calibration: the <b>8×8 lock</b> turns neon green the moment the grid is found.</li>
+    <li>Point it at the board. No calibration, no holding still: the <b>8×8 lock</b> turns neon green and the board flashes as the snapshot is read.</li>
     <li>The best move is drawn on the board in the camera view and on the mini-board. <b>White / Black</b> sets the side to move; <b>Flip</b> if the site shows the board from Black's side.</li>
   </ol>
   <div class="hint">Tap ▶ below to start</div>
@@ -285,15 +287,17 @@
 /*
  * ChessLens: point a phone at a 2D chessboard on another screen, get Stockfish's best move live.
  *
- * Per camera frame (no calibration, no debounce, no timers):
+ * Per camera frame (no calibration, no waiting for the camera to hold still):
  *   main thread  : requestAnimationFrame loop -> grab the newest camera frame (ImageBitmap, or pixels as a fallback)
  *   CV worker    : grey half-res -> ChESS X-corner response -> lattice of inner corners -> homography
  *                  -> checkerboard verification (+ light-square parity, piece "gravity" for orientation)
  *                  -> warp to a flat 320x320 board -> per-square silhouettes: occupancy, colour, shape features
  *                  -> piece types (learned piece set or style profiles + one king, <= 8 pawns, identical pieces vote)
- *   main thread  : 2-frame validator on the 64-square layout -> legal-move inference (chess.js) or full read
+ *                  -> sharpness of the flat board (motion blur / defocus) = the frame's vote weight
+ *   main thread  : snapshot on first sight -> per-square votes in the background (sharpness-weighted)
+ *                  -> legal-move inference (chess.js), refinement, or a new position read like a snapshot
  *                  -> FEN (+ turn toggle, flip) -> Stockfish pool (2 workers, streaming PV) -> SVG arrows,
- *                  drawn on the board in the live camera view (One-Euro smoothed, latency-compensated)
+ *                  drawn on the analysed frame itself (frame-synchronous view, so the arrow can't trail the hand)
  *
  * Third-party code loaded at runtime from public CDNs:
  *   Stockfish.js 10.0.2 (GPLv3, nmrugg/stockfish.js)   chess.js 0.10.3 (BSD-2, jhlywa/chess.js)
@@ -306,11 +310,24 @@
 // ======================================================================
 const CFG = {
   CAPTURE_LONG: 720,         // long side of the frame handed to the CV worker (px)
-  STABLE_FRAMES: 2,          // identical 64-square reads in a row before a position is pushed to the engine
-  UNLOCK_FRAMES: 2,          // unlocked frames in a row before the status chip drops the lock (lock shows instantly)
-  AR_HOLD_MS: 200,           // keep the camera overlay this long after the last locked frame
-  AR_PREDICT_MS: 70,         // max forward prediction of the overlay (compensates the CV pipeline latency)
-  OE_MINCUT: 1.7, OE_BETA: 0.02, OE_DCUT: 1.2,   // One-Euro filter on the tracked corners (source px, seconds)
+  // Hand-held reading: snapshot first, then per-square votes from every locked frame (weighted by sharpness)
+  SNAP_SHARP: 0.3,           // first sight: a frame at least this sharp is the snapshot straight away...
+  SNAP_WAIT_MS: 160,         // ...otherwise the sharpest frame seen within this long after the board was found
+  VOTE_TAU_MS: 110,          // occupancy votes fade with this time constant (a change lands in ~3 good frames)
+  TYPE_TAU_MS: 3000,         // piece-type evidence builds up over this long while a square's occupant stays
+  TYPE_SWITCH: 1.5,          // a square's piece type changes when another type has this much more evidence
+  VOTE_SHARE: 0.6,           // share of the recent vote weight a square needs to change its reading
+  VOTE_MIN_W: 0.6,           // and at least this much weight (a sharp frame and a bit)
+  FLUX_MAX_MS: 300,          // commit whole: wait this long at most for squares that are still mid-change
+  SETTLE_MS: 900,            // after a snapshot, changes are refinements of it (not moves) for this long
+  UNEXPLAINED_MS: 450,       // a small change no legal move explains must persist this long (a misread otherwise)
+  HAND_HOLD_MS: 1500,        // a piece lifted (only vanished) keeps the last position this long
+  NEW_POS_DIFF: 5,           // squares that must change for a new position rather than a move/misread
+  RELOCK_RESET_MS: 600,      // lock lost longer than this: the next frames may show another board, start the vote over
+  UNLOCK_MS: 350,            // no lock for this long before the chip says SEARCHING (the lock shows instantly)
+  AR_HOLD_MS: 300,           // an unlocked frame keeps the last overlay if the lock was this recent (blur peaks)
+  AR_STILL_PX: 0.35,         // corner moves below this (source px) are sensor noise: the overlay holds still
+  LIVE_AFTER_MS: 160,        // no analysed frame to show for this long: show the live camera instead
   ENGINES: 2,                // Stockfish workers: a new position always starts at once on an idle one
   ENGINE_DEPTH: 22,          // search cap; the arrow streams from depth ARROW_MIN_DEPTH (~10 ms) and improves
   ENGINE_MOVETIME: 2500,
@@ -328,6 +345,11 @@ const CFG = {
   LS_PANEL: 'chesslens.panelMin'
 };
 const PARAMS = new URLSearchParams(location.search);
+// ?debug=1&cfg=KEY:value,KEY:value overrides numeric settings (field tuning)
+if (PARAMS.get('debug') === '1' && PARAMS.get('cfg')) {
+  for (const kv of PARAMS.get('cfg').split(',')) { const [k, v] = kv.split(':'); if (k in CFG && typeof CFG[k] === 'number' && isFinite(+v)) CFG[k] = +v; }
+}
+const SIM_SHAKE = Math.max(0, Math.min(3, +(PARAMS.get('shake') || 1) || 0));   // demo feed: how shaky the "hand" is
 const START_PLACEMENT = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
 const GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟︎' };
 const FILES = 'abcdefgh';
@@ -474,7 +496,7 @@ function drawPiece(ctx, p, cx, cy, size) {
 // ======================================================================
 // Source (camera or demo canvas) and its object-fit:cover mapping on screen
 // ======================================================================
-const stageEl = $('stage'), video = $('cam'), simCv = $('simView'), camView = $('camView');
+const stageEl = $('stage'), video = $('cam'), simCv = document.createElement('canvas'), camView = $('camView');
 const camCtx = camView.getContext('2d', { alpha: false });
 const SRC = { kind: null, el: null, w: 0, h: 0 };
 function refreshSourceSize() {
@@ -490,15 +512,43 @@ function cover() {
   const s = Math.max(W / (SRC.w || 1), H / (SRC.h || 1));
   return { s, ox: (W - SRC.w * s) / 2, oy: (H - SRC.h * s) / 2, W, H };
 }
-// Show the camera through a canvas: drawImage() is the exact pixel path the CV capture uses (some browsers
-// composite a cropped camera track differently from what drawImage returns), so the overlay stays glued.
-function drawCamView() {
-  if (SRC.kind !== 'camera' || !video.videoWidth) return;
-  refreshSourceSize();
-  const c = cover(), dpr = Math.min(2, window.devicePixelRatio || 1);
+// Frame-synchronous view. A shaking hand moves the board several pixels per frame, and a frame's analysis
+// lands ~40-70 ms after it was taken, so an overlay drawn on the newest frame is always behind the board.
+// Instead each frame handed to the CV worker is also copied as it will be shown, and it is put on screen when
+// its result arrives, with that frame's own board corners: the arrow sits on the exact pixels it was computed
+// from, whatever the hand does. The view runs at the analysis rate, about one CV pass behind the camera.
+const DISP = { ring: [], ids: [], shownAt: 0, shownId: 0 };
+function sizeView(c) {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
   const cw = Math.max(1, Math.round(c.W * dpr)), ch = Math.max(1, Math.round(c.H * dpr));
   if (camView.width !== cw || camView.height !== ch) { camView.width = cw; camView.height = ch; }
-  try { camCtx.drawImage(video, -c.ox / c.s, -c.oy / c.s, c.W / c.s, c.H / c.s, 0, 0, cw, ch); } catch (e) { /* frame not ready */ }
+  return [cw, ch];
+}
+function paint(ctx, el, c, cw, ch) {
+  try { ctx.drawImage(el, -c.ox / c.s, -c.oy / c.s, c.W / c.s, c.H / c.s, 0, 0, cw, ch); } catch (e) { /* frame not ready */ }
+}
+function viewCapture(id) {          // copy the frame being analysed (same instant as the CV grab)
+  if (!SRC.el || !SRC.w) return;
+  const c = cover(), [cw, ch] = sizeView(c), k = id % 4;
+  let cv = DISP.ring[k];
+  if (!cv) { cv = DISP.ring[k] = document.createElement('canvas'); cv.ctx = cv.getContext('2d', { alpha: false }); }
+  if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+  paint(cv.ctx, SRC.el, c, cw, ch);
+  DISP.ids[k] = id; cv.cov = c;
+}
+function viewShow(id) {             // put an analysed frame on screen
+  const k = id % 4, cv = DISP.ring[k];
+  if (!cv || DISP.ids[k] !== id) return false;
+  sizeView(cover());
+  if (cv.width === camView.width && cv.height === camView.height) camCtx.drawImage(cv, 0, 0);
+  DISP.shownAt = performance.now(); DISP.shownId = id;
+  return cv.cov;
+}
+function viewLive() {               // no analysis coming (starting, CV stalled): show the source as it is
+  if (!SRC.el || !SRC.w) return;
+  refreshSourceSize();
+  const c = cover(), [cw, ch] = sizeView(c);
+  paint(camCtx, SRC.el, c, cw, ch);
 }
 
 // ======================================================================
@@ -565,13 +615,23 @@ const Sim = {
     }
     g.strokeStyle = '#0a0a0b'; g.lineWidth = 22; g.strokeRect(0, 0, 1280, 800);   // monitor bezel
   },
-  // hand-held sway: where the board is in the "camera" image this frame (as a screen->image homography)
+  // hand-held sway: where the board is in the "camera" image this frame (as a screen->image homography).
+  // ?shake=0..3 adds hand tremor (5-13 Hz), jerks and the motion blur they cause; the default is a normal hand.
   pose(ts) {
-    const t = ts / 1000, W = this.W, H = this.H, land = W > H;
+    const t = ts / 1000, W = this.W, H = this.H, land = W > H, k = SIM_SHAKE, m = Math.min(W, H), TAU = 2 * Math.PI;
     const Bs = land ? Math.min(W * 0.46, H * 0.74) : Math.min(W * 0.8, H * 0.46);
-    const cx = (land ? W * 0.34 : W * 0.5) + W * 0.035 * Math.sin(t * 0.37) + W * 0.012 * Math.sin(t * 1.9);
-    const cy = (land ? H * 0.52 : H * 0.34) + H * 0.02 * Math.sin(t * 0.53 + 1) + H * 0.006 * Math.sin(t * 2.3);
-    const th = 0.075 * Math.sin(t * 0.29), sc = 1 + 0.05 * Math.sin(t * 0.41), kz = 0.05 * Math.sin(t * 0.23 + 0.5);
+    let cx = (land ? W * 0.34 : W * 0.5) + W * 0.035 * Math.sin(t * 0.37) + W * 0.012 * Math.sin(t * 1.9);
+    let cy = (land ? H * 0.52 : H * 0.34) + H * 0.02 * Math.sin(t * 0.53 + 1) + H * 0.006 * Math.sin(t * 2.3);
+    let th = 0.075 * Math.sin(t * 0.29);
+    if (k) {
+      const a = 0.007 * k * m, j = k > 1 ? 0.016 * (k - 1) * m : 0;
+      cx += a * (Math.sin(t * TAU * 5.3) + 0.7 * Math.sin(t * TAU * 8.9 + 1.1) + 0.45 * Math.sin(t * TAU * 12.7 + 2.3))
+        + j * (Math.sin(t * TAU * 1.3 + 0.4) + 0.6 * Math.sin(t * TAU * 2.9 + 2));
+      cy += a * (Math.sin(t * TAU * 6.1 + 0.7) + 0.6 * Math.sin(t * TAU * 9.7 + 2.9) + 0.4 * Math.sin(t * TAU * 13.3 + 0.2))
+        + j * (Math.sin(t * TAU * 1.7 + 1.9) + 0.6 * Math.sin(t * TAU * 3.3 + 0.3));
+      th += 0.006 * k * Math.sin(t * TAU * 4.9 + 0.8);
+    }
+    const sc = 1 + 0.05 * Math.sin(t * 0.41), kz = 0.05 * Math.sin(t * 0.23 + 0.5);
     const quad = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => {
       const x = u * (Bs / 2) * sc * (1 + kz * v), y = v * (Bs / 2) * sc;
       return [cx + x * Math.cos(th) - y * Math.sin(th), cy + x * Math.sin(th) + y * Math.cos(th)];
@@ -582,7 +642,8 @@ const Sim = {
   update(ts) {
     if (!this.active) return;
     if (!this.t0) this.t0 = ts;
-    if (this.phase === 'intro') {
+    if (this.manual) { /* debug: positions are set from outside with show() */ }
+    else if (this.phase === 'intro') {
       if (ts - this.t0 > 3500) { this.phase = 'hold'; this.t0 = ts; }
     } else if (this.phase === 'hold') {
       const last = this.idx === this.seq.length - 1;
@@ -621,6 +682,20 @@ const Sim = {
     }
     ctx.fillStyle = `rgba(255,255,255,${(Math.random() * 0.03).toFixed(3)})`;   // screen flicker
     ctx.fillRect(0, 0, W, H);
+    // motion blur: the image moved during the exposure, so average copies along the path it took
+    if (!SIM_SHAKE) return;
+    const H0 = this.pose(ts - (SIM_SHAKE > 1 ? 30 : 18));
+    if (!H0) return;
+    const p1 = applyH(Hm, 640, 400), p0 = applyH(H0, 640, 400), dx = p0[0] - p1[0], dy = p0[1] - p1[1], len = Math.hypot(dx, dy);
+    if (len < 0.8) return;
+    if (!this.tmp || this.tmp.width !== W || this.tmp.height !== H) { this.tmp = document.createElement('canvas'); this.tmp.width = W; this.tmp.height = H; }
+    this.tmp.getContext('2d').drawImage(simCv, 0, 0);
+    const n = Math.min(9, Math.ceil(len / 1.2) + 1);
+    for (let i = 1; i < n; i++) {
+      ctx.globalAlpha = 1 / (i + 1);
+      ctx.drawImage(this.tmp, dx * i / (n - 1), dy * i / (n - 1));
+    }
+    ctx.globalAlpha = 1;
   }
 };
 
@@ -1006,6 +1081,26 @@ function ChessLensCV() {
     if (!v.tlLight || v.cons < MIN_CONS || v.contrast < MIN_CONTRAST) return null;
     return { H, v, n: nl };
   }
+  // Motion blur can wipe out the X-corners while the squares' mid-tones survive. Slide the predicted board over
+  // the frame (whole-image translation, coarse to fine, within +-0.6 of a square) to where the light/dark
+  // pattern lines up best. Overlay only: these frames are too blurred to read pieces from.
+  function trackBlur(Hp) {
+    hApply(Hp, 4, 4, P0); hApply(Hp, 5, 4, P1); hApply(Hp, 4, 5, P2);
+    const ux = P1[0] - P0[0], uy = P1[1] - P0[1], vx = P2[0] - P0[0], vy = P2[1] - P0[1];
+    const score = (a, b) => {
+      const H = hMul(Float64Array.of(1, 0, a * ux + b * vx, 0, 1, a * uy + b * vy, 0, 0, 1), Hp), v = verify(H);
+      return v ? { H, v, s: (v.tlLight ? 1 : -1) * v.cons * v.contrast } : null;
+    };
+    let best = null;
+    for (const [span, step] of [[0.6, 0.2], [0.16, 0.04]]) {
+      const a0 = best ? best.a : 0, b0 = best ? best.b : 0;
+      for (let a = a0 - span; a <= a0 + span + 1e-9; a += step) for (let b = b0 - span; b <= b0 + span + 1e-9; b += step) {
+        const r = score(a, b);
+        if (r && (!best || r.s > best.s)) { best = r; best.a = a; best.b = b; }
+      }
+    }
+    return best && best.v.tlLight && best.v.cons >= MIN_CONS && best.v.contrast >= MIN_CONTRAST ? best.H : null;
+  }
   const SHIFTS = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1], [1, -1], [-1, 1]];
   function refineShift(H, v) {
     for (let it = 0; it < 3; it++) {
@@ -1326,6 +1421,44 @@ function ChessLensCV() {
     const colThr = zs.length >= 3 ? clamp(otsu(zs), -1.3, 0.5) : -0.4;
     return { cells, lightSq, darkSq, hl, occThr, colThr };
   }
+  // occupancy/colour of each cell as read ('.', 'w', 'b')
+  function ocRead(an) {
+    let s = '';
+    for (const c of an.cells) s += c.occ > an.occThr && c.shape ? (c.z > an.colThr ? 'w' : 'b') : '.';
+    return s;
+  }
+
+  // ------------------------------------------------------------------ sharpness (motion blur, defocus)
+  // The edge between two empty squares is an ideal step. Its steepest 1 px step, relative to the whole step
+  // measured 11 px apart, is ~1 when sharp and drops as blur spreads it. Motion blur smears one direction only,
+  // so the worse direction counts. Upsampled boards (squares under 40 px in the frame) are rescaled to match.
+  function sharpness(an, cellPx) {
+    const d = flat, thr = 0.45 * (an.lightSq - an.darkSq);
+    if (!(thr > 8)) return 0;
+    const L = (x, y) => { const p = (y * BS + x) * 4; return d[p] * 0.3 + d[p + 1] * 0.59 + d[p + 2] * 0.11; };
+    const step = (x0, y0, dx, dy) => {   // steepest adjacent-pixel step around the edge (tolerates 1 px of grid error)
+      let m = 0;
+      for (let o = -2; o <= 0; o++) { const v = Math.abs(L(x0 + (o + 1) * dx, y0 + (o + 1) * dy) - L(x0 + o * dx, y0 + o * dy)); if (v > m) m = v; }
+      return m;
+    };
+    const empty = (cell) => !(an.cells[cell].occ > an.occThr);
+    let sx = 0, fx = 0, sy = 0, fy = 0;
+    for (let k = 1; k < 8; k++) {
+      const e = k * Q;
+      for (let r = 0; r < 8; r++) {
+        const vEdge = empty(r * 8 + k - 1) && empty(r * 8 + k), hEdge = empty((k - 1) * 8 + r) && empty(k * 8 + r);
+        for (let s = 6; s <= 34; s += 4) {
+          const a = r * Q + s;
+          if (vEdge) { const far = Math.abs(L(e + 5, a) - L(e - 6, a)); if (far > thr) { sx += step(e, a, 1, 0); fx += far; } }
+          if (hEdge) { const far = Math.abs(L(a, e + 5) - L(a, e - 6)); if (far > thr) { sy += step(a, e, 0, 1); fy += far; } }
+        }
+      }
+    }
+    // A real position always leaves runs of empty squares. No clean edges means a smeared frame or a slightly
+    // wrong fit (every square then looks occupied): it gets no say.
+    if (fx < thr * 16 || fy < thr * 16) return 0;
+    return Math.min(sx / fx, sy / fy) / clamp(cellPx / Q, 0.3, 1);
+  }
 
   // ------------------------------------------------------------------ piece types
   // Shape-feature profiles of three reference styles (Staunton outline, chunky 3D, font glyphs), measured
@@ -1373,7 +1506,7 @@ function ChessLensCV() {
   }
   const ema = new Array(64).fill(null), emaKey = new Array(64).fill('');
   const P_ = 0, N_ = 1, R_ = 3, Q_ = 4, K_ = 5;
-  function classify(an, fresh) {
+  function classify(an, fresh, wq) {
     const types = new Array(64).fill(''), conf = new Float32Array(64);
     const occ = an.cells.map((c) => c.occ > an.occThr && !!c.shape);
     for (const col of ['w', 'b']) {
@@ -1388,8 +1521,9 @@ function ChessLensCV() {
         for (let t = 0; t < 6; t++) sc[t] *= wg;
         for (let t = 0; t < 6; t++) if (T[TYPES[t]]) sc[t] += 40 * (nccShift(c.shape, T[TYPES[t]]) - 0.9);
         if ((cell >> 3) === 0 || (cell >> 3) === 7) sc[P_] = -1e6;
-        const key = col + cell;
-        if (!fresh && ema[cell] && emaKey[cell] === key) for (let t = 0; t < 6; t++) sc[t] = 0.5 * sc[t] + 0.5 * ema[cell][t];
+        // running per-square evidence: sharp frames count, blurred ones barely move it
+        const key = col + cell, a = 0.15 + 0.6 * wq;
+        if (!fresh && ema[cell] && emaKey[cell] === key) for (let t = 0; t < 6; t++) sc[t] = a * sc[t] + (1 - a) * ema[cell][t];
         ema[cell] = sc; emaKey[cell] = key;
         S[cell] = sc;
       }
@@ -1496,6 +1630,26 @@ function ChessLensCV() {
     if (n < 3 || Math.hypot(gx, gy) / n < 0.015) return allowed[0];
     return allowed[0] === undefined ? 0 : (dirs[allowed[0]][0] * gx + dirs[allowed[0]][1] * gy >= dirs[allowed[1]][0] * gx + dirs[allowed[1]][1] * gy ? allowed[0] : allowed[1]);
   }
+  // A shaky hand drops the lock now and then. When it comes back on the board already being read, keep the
+  // quarter turn that matches that position (sparse endgames give gravity too little to go on).
+  let refOc = null;
+  const ROT = [(r, c) => r * 8 + c, (r, c) => c * 8 + 7 - r, (r, c) => (7 - r) * 8 + 7 - c, (r, c) => (7 - c) * 8 + r];
+  function refTurn(an, tlLight) {
+    if (!refOc) return null;
+    const seen = ocRead(an), sc = [];
+    for (const k of tlLight ? [0, 2] : [1, 3]) {
+      let hit = 0, n = 0;
+      for (let cell = 0; cell < 64; cell++) {
+        const a = refOc[cell], b = seen[ROT[k](cell >> 3, cell & 7)];
+        if (a === '.' && b === '.') continue;
+        n++; if (a === b) hit++;
+      }
+      sc.push([n >= 4 ? hit / n : 0, k]);
+    }
+    sc.sort((x, y) => y[0] - x[0]);
+    return sc[0][0] >= 0.75 && sc[0][0] - sc[1][0] >= 0.15 ? sc[0][1] : null;
+  }
+  let qRef = 0.1;
   function process(src, w, h, t) {
     const T = [performance.now()];
     buildGray(src, w, h);
@@ -1543,27 +1697,38 @@ function ChessLensCV() {
     T.push(performance.now());
     if (!found) {
       lost++;
-      if (lost > 3) { prevH = null; prevH0 = null; }
-      return { lock: false, nc, t, ms: T.map((x, i) => (i ? x - T[i - 1] : 0)).slice(1), total: performance.now() - T[0] };
+      const Ht = pred && lost <= 3 ? trackBlur(pred) : null;
+      if (lost > 3) { prevH = null; prevH0 = null; }   // (a blur-tracked pose never seeds the next frame: no drift)
+      return { lock: false, track: !!Ht, corners: Ht ? cornersOf(hMul(S2, Ht)) : null, nc, t, ms: T.map((x, i) => (i ? x - T[i - 1] : 0)).slice(1), total: performance.now() - T[0] };
     }
     let Hb = found.H, Hc = hMul(S2, Hb);
     warp(src, w, h, Hc);
     let an = analyze();
     if (!cont) {
-      const k = gravityTurn(an, found.v.tlLight);
+      let k = refTurn(an, found.v.tlLight);
+      if (k === null) k = gravityTurn(an, found.v.tlLight);
       if (k) { const H2 = rotateH(Hb, k); if (H2) { Hb = H2; Hc = hMul(S2, Hb); warp(src, w, h, Hc); an = analyze(); } }
     }
     T.push(performance.now());
     prevH0 = cont ? prevH : null; prevT0 = prevT; prevH = Hb; prevT = t; lost = 0;
     lastAn = an;
-    const cls = classify(an, !cont);
+    // frame weight from sharpness, relative to the sharpest recent frames (a slowly fading maximum)
+    const cc = cornersOf(Hc);
+    let per = 0;
+    for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; per += Math.hypot(cc[j * 2] - cc[i * 2], cc[j * 2 + 1] - cc[i * 2 + 1]); }
+    const sharp = sharpness(an, per / 32);
+    qRef = Math.max(sharp, qRef * 0.985, 0.1);
+    const wq = Math.pow(clamp(sharp / qRef, 0.05, 1), 2);
+    const cls = classify(an, !cont, wq);
     T.push(performance.now());
-    return { lock: true, types: cls.types, conf: cls.conf, fresh: !cont, corners: cornersOf(Hc), cons: found.v.cons, contrast: found.v.contrast, n: found.n, nc, an, t,
+    return { lock: true, types: cls.types, conf: cls.conf, fresh: !cont, corners: cc, cons: found.v.cons, contrast: found.v.contrast, n: found.n, nc, an, t, sharp, wq,
       ms: T.map((x, i) => (i ? x - T[i - 1] : 0)).slice(1), total: performance.now() - T[0] };
   }
   function reset() { prevH = null; prevH0 = null; lost = 99; }
+  function setRef(oc) { refOc = typeof oc === 'string' && oc.length === 64 ? oc : null; }
+  function fresh() { ema.fill(null); emaKey.fill(''); }
 
-  return { process, reset, learn, exportLearned, importLearned, clearLearned, setBank(b) { BANK = b; }, getBank() { return BANK; }, buildGray, chessResponse, extractCorners, trackFrom, detectFresh, rotateH, verify, warp, analyze, hApply, hMul, hQuad,
+  return { process, reset, setRef, fresh, learn, exportLearned, importLearned, clearLearned, setBank(b) { BANK = b; }, getBank() { return BANK; }, buildGray, chessResponse, extractCorners, trackFrom, detectFresh, rotateH, verify, warp, analyze, hApply, hMul, hQuad,
     get nc() { return nc; }, get gw() { return gw; }, get gh() { return gh; }, cX, cY, cR, flat, BS, TYPES };
 }
 
@@ -1593,6 +1758,7 @@ function cvWorkerMain(scope) {
       try { r = cv.process(data, m.w, m.h, m.t); }
       catch (err) { scope.postMessage({ cmd: 'error', msg: String(err && err.stack || err) }); return; }
       const out = { cmd: 'result', id: m.id, t: m.t, w: m.w, h: m.h, vw: m.vw, vh: m.vh, lock: r.lock, total: r.total };
+      if (r.track) { out.track = true; out.corners = Array.from(r.corners); }
       if (r.lock) {
         out.corners = Array.from(r.corners);
         out.cons = r.cons; out.fresh = r.fresh;
@@ -1600,6 +1766,7 @@ function cvWorkerMain(scope) {
         for (let i = 0; i < 64; i++) s += r.types[i] || '.';
         out.layout = s;
         out.hl = r.an.hl; out.lightSq = r.an.lightSq; out.darkSq = r.an.darkSq;
+        out.sharp = r.sharp; out.wq = r.wq;
       }
       scope.postMessage(out);
     } else if (m.cmd === 'learn') {
@@ -1607,11 +1774,13 @@ function cvWorkerMain(scope) {
     } else if (m.cmd === 'import') cv.importLearned(m.data);
     else if (m.cmd === 'clear') cv.clearLearned();
     else if (m.cmd === 'reset') cv.reset();
+    else if (m.cmd === 'ref') cv.setRef(m.oc);
+    else if (m.cmd === 'fresh') cv.fresh();
   };
 }
 
 const CV = {
-  w: null, inline: null, offscreen: false, started: false,
+  w: null, inline: null, offscreen: false, started: false, refOc: '',
   init() {
     if (this.started) return;
     this.started = true;
@@ -1633,7 +1802,7 @@ const CV = {
     if (this.w) { try { this.w.terminate(); } catch (_) {} this.w = null; }
     const scope = { onmessage: null, postMessage: (msg) => onCvMessage(msg) };
     cvWorkerMain(scope);
-    this.inline = scope; this.offscreen = false;
+    this.inline = scope; this.offscreen = false; this.refOc = '';
     CAP.inflight = 0;
     this.importSaved();
   },
@@ -1667,7 +1836,6 @@ function armFrameCallback() {
   CAP.rvfc = true;
   const cb = () => {
     CAP.newFrame = true; CAP.camFrames++;
-    drawCamView();                                                      // one paint per camera frame
     if (running && SRC.kind === 'camera') video.requestVideoFrameCallback(cb);
   };
   video.requestVideoFrameCallback(cb);
@@ -1683,6 +1851,7 @@ function pump(now) {
   const w = Math.max(64, Math.round(vw * k)) & ~1, h = Math.max(64, Math.round(vh * k)) & ~1;
   const id = ++CAP.id, t = performance.now();
   CAP.inflight++; CAP.sentAt = now;
+  viewCapture(id);
   if (useBitmap) {
     createImageBitmap(SRC.el, { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium' })
       .then((bmp) => {
@@ -1705,20 +1874,9 @@ function pump(now) {
 }
 
 // ======================================================================
-// Tracking state: lock indicator, smoothed corners (One-Euro) for the live overlay
+// Tracking state: lock indicator, board corners of the frame on screen (for the live overlay)
 // ======================================================================
-class OneEuro {
-  constructor(x, t) { this.x = x; this.dx = 0; this.t = t; }
-  filter(x, t) {
-    const dt = Math.max(1e-3, t - this.t);
-    this.t = t;
-    const alpha = (fc) => 1 / (1 + 1 / (2 * Math.PI * fc * dt));
-    this.dx += alpha(CFG.OE_DCUT) * ((x - this.x) / dt - this.dx);
-    this.x += alpha(CFG.OE_MINCUT + CFG.OE_BETA * Math.abs(this.dx)) * (x - this.x);
-    return this.x;
-  }
-}
-const TRACK = { f: null, lastLockAt: 0, tCap: 0, miss: 0, shown: 'idle' };
+const TRACK = { corners: null, cov: null, lastLockAt: 0, shown: 'idle' };
 const lockChip = $('lockChip'), lockText = $('lockText');
 function setLockState(state) {
   if (state === TRACK.shown) return;
@@ -1728,57 +1886,194 @@ function setLockState(state) {
   if (state === 'locked') { void lockChip.offsetWidth; lockChip.classList.add('flash'); }
 }
 lockChip.addEventListener('animationend', (e) => { if (e.animationName === 'lockflash') lockChip.classList.remove('flash'); });
-function updateTrack(r) {
-  const k = r.vw / r.w, t = r.t / 1000, now = performance.now();
-  const pts = r.corners.map((v) => v * k);            // capture px -> source (video) px
-  if (!TRACK.f || r.fresh || now - TRACK.lastLockAt > 300) TRACK.f = pts.map((v) => new OneEuro(v, t));
-  else for (let i = 0; i < 8; i++) TRACK.f[i].filter(pts[i], t);
-  TRACK.lastLockAt = now; TRACK.tCap = r.t;
+// corners of the frame being shown, in source px. They come from that very frame, so they need no smoothing or
+// prediction; only sub-pixel noise on a still camera is held back so the grid doesn't shimmer.
+function updateTrack(r, cov) {
+  const k = r.vw / r.w, pts = r.corners.map((v) => v * k), old = TRACK.corners;
+  if (!old || TRACK.cov !== cov || pts.some((v, i) => Math.abs(v - old[i]) > CFG.AR_STILL_PX)) TRACK.corners = pts;
+  TRACK.cov = cov;
+  TRACK.lastLockAt = performance.now();
 }
 
 // ======================================================================
-// Per-frame results -> 2-frame validator -> position commits
+// Per-frame results -> snapshot + per-square vote -> position commits
 // ======================================================================
+// A hand-held camera shakes: frames come motion-blurred, and the lock drops out now and then. No frame, or run
+// of identical frames, is waited for:
+//  - First sight: the first sharp locked frame (or the sharpest within SNAP_WAIT_MS) is the snapshot. It is read
+//    and sent to the engine at once, and the arrow is drawn on the live view.
+//  - In the background every locked frame votes on each square, weighted by its sharpness; votes fade in about
+//    VOTE_TAU_MS. A square only changes its reading when most of the recent weight agrees, so blurred or
+//    half-locked frames can't flip it, and a dropped lock doesn't lose what was seen.
+//  - Changes are committed whole (a move, a new position), then matched against the game: a legal move, a
+//    refinement of the snapshot, a piece in hand, or a new position (which is read like a fresh snapshot).
 const STATS = { cv: 0, cvMs: 0, ui: 0, t0: 0 };
-const VAL = { key: '', count: 0, committed: '', held: 0 };
+const SYM = '.PNBRQKpnbrqk', NSYM = SYM.length;
+const VOTE = {
+  w: new Float32Array(64 * NSYM), tot: new Float32Array(64), t: 0,   // recent votes: what is on each square now
+  tw: new Float32Array(64 * NSYM),     // type evidence, gathered for as long as a square's occupant stays the same
+  oc: null, typ: null,    // consensus per image cell: occupancy/colour ('.', 'w', 'b') and piece (null: no evidence yet)
+  acquire: true,          // looking for the first snapshot
+  firstT: 0, best: null,  // acquisition: when the board was first seen, and the sharpest frame since
+  lastLockT: 0, seenT: 0, // capture time of the last locked frame / of the last frame the board was followed in
+  processed: '',          // last consensus handed to the position logic
+  fluxSince: 0, holdKey: '', holdSince: 0, settleUntil: 0
+};
+const ocSym = (ch) => (ch === '.' ? '.' : colorOf(ch));
+function voteReset(acquire) {
+  VOTE.w.fill(0); VOTE.tot.fill(0); VOTE.tw.fill(0); VOTE.t = 0; VOTE.oc = null; VOTE.typ = null;
+  VOTE.processed = ''; VOTE.fluxSince = 0; VOTE.holdKey = ''; VOTE.best = null; VOTE.firstT = 0;
+  if (acquire) VOTE.acquire = true;
+}
+// consensus = this layout, with a little type evidence behind it (the snapshot, a new position)
+function voteSeed(layout) {
+  VOTE.oc = Array.from(layout, ocSym); VOTE.typ = Array.from(layout); VOTE.tw.fill(0);
+  for (let c = 0; c < 64; c++) if (layout[c] !== '.') VOTE.tw[c * NSYM + SYM.indexOf(layout[c])] = 0.5;
+}
+// Add a frame's reading (weight = its sharpness) and update the consensus. Occupancy/colour follows recent
+// frames and is sticky: it changes when VOTE_SHARE of the recent weight agrees. A piece type only changes while
+// the occupant stays, so its evidence builds up over seconds and a type flips only when another clearly overtakes it.
+// flux = squares whose occupancy is changing but hasn't got there yet. Returns null until every square has a reading.
+function voteUpdate(layout, wq, t) {
+  const w = VOTE.w, tot = VOTE.tot, tw = VOTE.tw;
+  const dt = VOTE.t ? Math.max(0, t - VOTE.t) : 0;
+  VOTE.t = t;
+  if (dt) {
+    const a = Math.exp(-dt / CFG.VOTE_TAU_MS), b = Math.exp(-dt / CFG.TYPE_TAU_MS);
+    for (let i = 0; i < w.length; i++) { w[i] *= a; tw[i] *= b; }
+    for (let c = 0; c < 64; c++) tot[c] *= a;
+  }
+  if (!VOTE.oc) { VOTE.oc = new Array(64).fill(null); VOTE.typ = new Array(64).fill(null); }
+  const oc = VOTE.oc, typ = VOTE.typ;
+  let open = 0, flux = 0;
+  for (let c = 0; c < 64; c++) {
+    const o = c * NSYM, sym = layout[c], k = SYM.indexOf(sym);
+    w[o + k] += wq; tot[c] += wq;
+    let we = w[o], ww = 0, wb = 0;
+    for (let s = 1; s <= 6; s++) { ww += w[o + s]; wb += w[o + s + 6]; }
+    const top = we >= ww && we >= wb ? '.' : ww >= wb ? 'w' : 'b';
+    const share = tot[c] > 0 ? (top === '.' ? we : top === 'w' ? ww : wb) / tot[c] : 0;
+    if (oc[c] !== top) {
+      const ready = tot[c] >= CFG.VOTE_MIN_W && (oc[c] === null || share >= CFG.VOTE_SHARE);
+      if (ready) { oc[c] = top; typ[c] = null; tw.fill(0, o, o + NSYM); }
+      else if (oc[c] === null) open++;
+      else if (share >= 0.34) flux++;
+    }
+    if (oc[c] !== null && oc[c] !== '.' && ocSym(sym) === oc[c]) tw[o + k] += wq;
+  }
+  if (open) return null;
+  for (let c = 0; c < 64; c++) {
+    if (oc[c] === '.') { typ[c] = '.'; continue; }
+    const o = c * NSYM, lo = oc[c] === 'w' ? 1 : 7;
+    let b = lo, ev = tw;
+    if (!(tw[o + lo] + tw[o + lo + 1] + tw[o + lo + 2] + tw[o + lo + 3] + tw[o + lo + 4] + tw[o + lo + 5] > 0)) ev = w;   // just changed
+    for (let s = lo + 1; s < lo + 6; s++) if (ev[o + s] > ev[o + b]) b = s;
+    const cur = typ[c] && typ[c] !== '.' && ocSym(typ[c]) === oc[c] ? SYM.indexOf(typ[c]) : -1;
+    if (cur < 0 || (b !== cur && tw[o + b] > CFG.TYPE_SWITCH * tw[o + cur] + 0.2)) typ[c] = SYM[b];
+  }
+  return { layout: withKings(), flux };
+}
+// A new position: piece types seen before belong to other pieces. Re-type every square from the recent frames only.
+function voteRetype() {
+  const w = VOTE.w;
+  for (let c = 0; c < 64; c++) {
+    if (VOTE.oc[c] === '.') continue;
+    const o = c * NSYM, lo = VOTE.oc[c] === 'w' ? 1 : 7;
+    let b = lo;
+    for (let s = lo + 1; s < lo + 6; s++) if (w[o + s] > w[o + b]) b = s;
+    VOTE.typ[c] = SYM[b];
+  }
+  const layout = withKings();
+  voteSeed(layout);
+  return layout;
+}
+// exactly one king per side: the most king-like square of that colour; any other "king" takes its next best type
+function withKings() {
+  const out = VOTE.typ.slice(), tw = VOTE.tw, w = VOTE.w;
+  for (const col of ['w', 'b']) {
+    const lo = col === 'w' ? 1 : 7, K = lo + 5, cells = [];
+    for (let c = 0; c < 64; c++) if (VOTE.oc[c] === col) cells.push(c);
+    if (!cells.length) continue;
+    const kings = cells.filter((c) => out[c] === SYM[K]);
+    if (kings.length === 1) continue;
+    const kLike = (c) => { const o = c * NSYM; let t = 0; for (let s = lo; s < lo + 6; s++) t += tw[o + s]; return (t > 0 ? tw[o + K] / t : 0) + 0.01 * w[o + K]; };
+    let king = -1;
+    for (const c of kings.length ? kings : cells) if (king < 0 || kLike(c) > kLike(king)) king = c;
+    for (const c of kings) {
+      if (c === king) continue;
+      const o = c * NSYM, ev = tw[o + lo] + tw[o + lo + 1] + tw[o + lo + 2] + tw[o + lo + 3] + tw[o + lo + 4] > 0 ? tw : w, row = c >> 3;
+      let b = -1;
+      for (let s = lo; s < K; s++) { if (s === lo && (row === 0 || row === 7)) continue; if (b < 0 || ev[o + s] > ev[o + b]) b = s; }
+      out[c] = SYM[b];
+    }
+    out[king] = SYM[K];
+  }
+  return out.join('');
+}
 // Pieces only vanished (none appeared, no colour changed): a piece in hand or a move animation. No legal move
-// looks like that, so the last position is kept; if the state persists (~1.5 s, e.g. clearing a board editor) it is read.
+// looks like that, so the last position is kept; if the state persists (HAND_HOLD_MS, e.g. clearing a board editor) it is read.
 function vanishedOnly(layout) {
   if (!POS.known) return false;
   const a = ocOf(POS.grid);
   let gone = 0;
   for (let i = 0; i < 64; i++) {
-    const n = layout[i] === '.' ? '.' : colorOf(layout[i]);
+    const n = ocSym(layout[i]);
     if (n === a[i]) continue;
     if (n !== '.') return false;
     gone++;
   }
   return gone > 0 && gone <= 2;
 }
+function possible(layout) {
+  let w = 0, b = 0;
+  for (let i = 0; i < 64; i++) { const ch = layout[i]; if (ch === '.') continue; if (ch === ch.toUpperCase()) w++; else b++; }
+  return w <= 16 && b <= 16;
+}
+function ocDiff(a, b) { let n = 0; for (let i = 0; i < 64; i++) if (a[i] !== b[i]) n++; return n; }
 const TRACE = PARAMS.get('debug') === '1' ? [] : null;
 function onResult(r) {
   CAP.inflight = Math.max(0, CAP.inflight - 1);
   if (!running) return;
-  if (TRACE) { TRACE.push([Math.round(r.t), Math.round(performance.now()), r.lock ? 1 : 0, r.layout || '', +r.total.toFixed(1)]); if (TRACE.length > 900) TRACE.splice(0, 300); }
+  if (TRACE) { TRACE.push([Math.round(r.t), Math.round(performance.now()), r.lock ? 1 : 0, r.layout || '', +r.total.toFixed(1), r.lock ? +r.sharp.toFixed(3) : 0, r.lock ? +r.wq.toFixed(3) : 0]); if (TRACE.length > 900) TRACE.splice(0, 300); }
   STATS.cv++; STATS.cvMs += r.total;
+  const cov = viewShow(r.id);                     // the analysed frame goes on screen with its own overlay
+  AR.dirty = true;
+  if (r.track) { updateTrack(r, cov || TRACK.cov); VOTE.seenT = r.t; return; }   // too blurred to read: overlay only
   if (!r.lock) {
-    if (++TRACK.miss >= CFG.UNLOCK_FRAMES) setLockState('searching');
-    VAL.key = ''; VAL.count = 0;
-    return;
+    if (r.t - VOTE.seenT > CFG.UNLOCK_MS) setLockState('searching');
+    return;                                       // the votes stay; they just fade
   }
-  TRACK.miss = 0;
   setLockState('locked');
-  updateTrack(r);
+  updateTrack(r, cov || TRACK.cov);
   tuneExposure(r);
-  // two-frame state stream validator: the same 64-square layout twice in a row (~33 ms) is a locked state
-  if (r.layout === VAL.key) VAL.count++;
-  else { VAL.key = r.layout; VAL.count = 1; VAL.held = 0; }
-  if (VAL.count >= CFG.STABLE_FRAMES && r.layout !== VAL.committed) {
-    if (vanishedOnly(r.layout) && ++VAL.held < 45) { setScan('Piece in hand…'); return; }
-    VAL.committed = r.layout; VAL.held = 0;
-    commitObservation(r);
+  if (VOTE.seenT && r.t - VOTE.seenT > CFG.RELOCK_RESET_MS) voteReset(false);   // lost for a while: maybe another board
+  VOTE.lastLockT = VOTE.seenT = r.t;
+  if (!possible(r.layout)) return;                // a misfit frame (e.g. 50 "pieces"): it never votes
+  const obs = voteUpdate(r.layout, r.wq, r.t);
+  if (VOTE.acquire) { snapshot(r); return; }
+  if (!obs || obs.layout === VOTE.processed) { VOTE.fluxSince = 0; return; }
+  if (obs.flux) {                                 // part of a move/new position is still coming in
+    if (!VOTE.fluxSince) VOTE.fluxSince = r.t;
+    if (r.t - VOTE.fluxSince < CFG.FLUX_MAX_MS) return;
   }
+  VOTE.fluxSince = 0;
+  const res = commitObservation(obs.layout, r, r.t < VOTE.settleUntil ? 'settle' : 'watch');
+  if (res !== 'hold' && res !== 'retyped') VOTE.processed = obs.layout;   // ('retyped' set its own)
 }
+// First sight of a board: take the snapshot and read it now.
+function snapshot(r) {
+  if (!VOTE.firstT) VOTE.firstT = r.t;
+  if (!VOTE.best || r.sharp > VOTE.best.sharp) VOTE.best = r;
+  if (r.sharp < CFG.SNAP_SHARP && r.t - VOTE.firstT < CFG.SNAP_WAIT_MS) { setScan('Board found…'); return; }
+  const snap = VOTE.best;
+  VOTE.acquire = false; VOTE.best = null; VOTE.firstT = 0;
+  voteSeed(snap.layout);                          // the consensus starts from the snapshot; later frames refine it
+  VOTE.settleUntil = r.t + CFG.SETTLE_MS;
+  VOTE.processed = commitObservation(snap.layout, snap, 'snap') === 'hold' ? '' : snap.layout;
+  snapFlash();
+}
+// after a manual edit: the current reading counts as handled, so the edit stands until the board itself changes
+function voteSync() { VOTE.processed = VOTE.typ && !VOTE.typ.includes(null) ? withKings() : ''; }
 function startOrientation(oc) {
   for (let r = 2; r < 6; r++) if (oc.slice(r * 8, r * 8 + 8) !== '........') return null;
   const top = oc.slice(0, 16), bot = oc.slice(48, 64);
@@ -1786,8 +2081,9 @@ function startOrientation(oc) {
   if (/^b{16}$/.test(top) && /^w{16}$/.test(bot)) return false;
   return null;
 }
-function commitObservation(r) {
-  const grid = Array.from(r.layout, (ch) => (ch === '.' ? '' : ch));
+// mode: 'snap' (first sight), 'settle' (just after a snapshot: differences are refinements), 'watch'
+function commitObservation(layout, r, mode) {
+  const grid = Array.from(layout, (ch) => (ch === '.' ? '' : ch));
   const oc = ocOf(grid);
   POS.tCapture = r.t;
   // 1) start position: known types, orientation and turn; teaches the scanner this site's piece set
@@ -1802,16 +2098,20 @@ function commitObservation(r) {
       commitPosition({ grid: g, turn: 'w', castling: 'KQkq', ep: '-', half: 0, full: 1 });
       feedback();
     }
-    setScan('Start position ✓');
+    setScan(mode === 'snap' ? 'Captured: start position ✓' : 'Start position ✓');
     return;
   }
-  // 2) the same occupancy as the current position: only piece-type noise
-  if (POS.known && oc === ocOf(POS.grid)) {
-    if (POS.trusted) { setScan('Tracking ✓'); return; }
-    if (grid.join() === POS.grid.join()) return;
+  const known = POS.known, diff = known ? ocDiff(oc, ocOf(POS.grid)) : 64;
+  if (mode === 'snap' && known && diff && diff < CFG.NEW_POS_DIFF) mode = 'watch';   // back on the same board
+  // 2) the same occupancy as the current position: only piece types differ
+  if (known && !diff) {
+    if (POS.trusted) { setScan(mode === 'snap' ? 'Captured ✓ · tracking' : 'Tracking ✓'); return; }
+    if (grid.join() === POS.grid.join()) { if (mode === 'snap') setScan('Captured ✓'); return; }
+    reRead(grid, r.hl, 'refine');
+    return;
   }
   // 3) one legal move (or two, e.g. a premove) from the known position explains it: types come from the game
-  if (POS.valid && POS.game && hasChess()) {
+  if (known && POS.valid && POS.game && hasChess()) {
     const ex = explainMove(oc, grid);
     if (ex) {
       applyGameFen(ex.fen, ex.san);
@@ -1821,10 +2121,30 @@ function commitObservation(r) {
       return;
     }
   }
-  // 4) full read from vision (new game, jump, takeback, first look at a mid-game)
-  reRead(grid, r.hl);
+  // 4) a few squares changed and no move explains it: a piece in hand, or a misread that has to persist to count
+  if (mode === 'watch' && diff < CFG.NEW_POS_DIFF) {
+    if (VOTE.holdKey !== layout) { VOTE.holdKey = layout; VOTE.holdSince = r.t; }
+    const hand = vanishedOnly(layout);
+    if (r.t - VOTE.holdSince < (hand ? CFG.HAND_HOLD_MS : CFG.UNEXPLAINED_MS)) { setScan(hand ? 'Piece in hand…' : 'Checking…'); return 'hold'; }
+  }
+  // 5) full read from vision: the snapshot, a refinement of it, a new position, or a persistent change
+  const kind = mode === 'snap' ? 'snap' : mode === 'settle' ? 'refine' : diff >= CFG.NEW_POS_DIFF ? 'new' : 'scan';
+  if (kind === 'new') {         // read like a fresh snapshot: type evidence from before belongs to other pieces
+    const fresh = voteRetype();
+    CV.post({ cmd: 'fresh' });
+    VOTE.settleUntil = r.t + CFG.SETTLE_MS; snapFlash();
+    if (fresh !== layout) { VOTE.processed = fresh; reRead(Array.from(fresh, (ch) => (ch === '.' ? '' : ch)), r.hl, kind); return 'retyped'; }
+  }
+  reRead(grid, r.hl, kind);
 }
+// A held observation (piece in hand, unexplained change) is looked at again every frame: search each once.
+const explainCache = { key: '', val: null };
 function explainMove(oc, grid) {
+  const key = POS.fen + '|' + POS.flipped + '|' + oc + '|' + grid.join();
+  if (explainCache.key !== key) { explainCache.key = key; explainCache.val = explainSearch(oc, grid); }
+  return explainCache.val;
+}
+function explainSearch(oc, grid) {
   const flipped = POS.flipped;
   const ocGame = (g) => {
     const B = g.board();
@@ -1882,7 +2202,9 @@ function moverFromDiff(oldGrid, newGrid) {
   for (let c = 0; c < 64; c++) { const o = oldGrid[c]; if (o && !newGrid[c]) { if (colorOf(o) === 'w') w++; else b++; } }
   return w > b ? 'w' : b > w ? 'b' : null;
 }
-function reRead(grid, hl) {
+// kind: 'snap' (first sight), 'new' (another position entirely), 'refine' (the snapshot, read better), 'scan' (a lasting change)
+function reRead(grid, hl, kind) {
+  if ((kind === 'snap' || kind === 'new') && !POS.flipManual) POS.orientationKnown = false;
   if (!POS.orientationKnown) {
     const gf = guessFlipped(grid);
     POS.flipped = gf.flipped;
@@ -1891,11 +2213,12 @@ function reRead(grid, hl) {
   let turn = POS.turn;
   const hm = moverFromHighlight(grid, hl);
   if (hm) turn = other(hm);
-  else if (POS.known) { const m = moverFromDiff(POS.grid, grid); if (m) turn = other(m); }
-  POS.lastSan = 'Scan'; POS.trusted = false;
+  else if (kind === 'scan' && POS.known) { const m = moverFromDiff(POS.grid, grid); if (m) turn = other(m); }
+  POS.lastSan = { snap: 'Snapshot', new: 'New position', refine: 'Refined', scan: 'Scan' }[kind]; POS.trusted = false;
   commitPosition({ grid, turn, castling: inferCastling(gridToBoard(grid, POS.flipped)), ep: '-', half: 0, full: 1 }, { autoTurn: true });
-  setScan(POS.valid ? 'Board read ✓' : '⚠ ' + POS.reason, POS.valid ? '' : 'warn');
-  if (POS.valid) feedback();
+  const label = { snap: 'Captured ✓', new: 'New position ✓', refine: 'Refined ✓', scan: 'Board read ✓' }[kind];
+  setScan(POS.valid ? label : '⚠ ' + POS.reason, POS.valid ? '' : 'warn');
+  if (POS.valid && kind !== 'refine') feedback();
 }
 
 // ======================================================================
@@ -1904,7 +2227,7 @@ function reRead(grid, hl) {
 const POS = {
   grid: new Array(64).fill(''), flipped: false, orientationKnown: false,
   turn: 'w', castling: '-', ep: '-', half: 0, full: 1,
-  known: false, valid: false, reason: '', fen: '', game: null, lastSan: '', trusted: false, tCapture: 0
+  known: false, valid: false, reason: '', fen: '', game: null, lastSan: '', trusted: false, tCapture: 0, flipManual: false
 };
 // Dynamic FEN assembler: scanned grid + orientation (Flip) + side to move (toggle), all applied before dispatch.
 function assembleFen() {
@@ -1934,6 +2257,8 @@ function validateFen(fen) {
 function commitPosition(upd, opts = {}) {
   Object.assign(POS, upd);
   POS.known = true;
+  const oc = ocOf(POS.grid);
+  if (oc !== CV.refOc) { CV.refOc = oc; CV.post({ cmd: 'ref', oc }); }
   let fen = assembleFen(), v = validateFen(fen);
   if (!v.ok && v.oppInCheck && opts.autoTurn) {      // scans/edits: the side in check must be the side to move
     POS.turn = other(POS.turn); POS.ep = '-';
@@ -2130,9 +2455,10 @@ function uciCells(uci) {
 function setArrows(best, reply) {
   if (ARROWS.best === best && ARROWS.reply === reply) return;
   ARROWS = { best, reply };
+  AR.dirty = true;
   renderMiniArrows();
 }
-function clearArrows() { ARROWS = { best: null, reply: null }; renderMiniArrows(); }
+function clearArrows() { ARROWS = { best: null, reply: null }; AR.dirty = true; renderMiniArrows(); }
 function renderMiniArrows() {
   boardArrows.textContent = '';
   for (const s of squares) s.classList.remove('hl');
@@ -2144,25 +2470,23 @@ function renderMiniArrows() {
       stroke: '#03140f', 'stroke-opacity': 0.5, 'stroke-width': 0.02 }, boardArrows);
   }
 }
-// ---------- live camera overlay (per rAF, latency-compensated) ----------
+// ---------- camera overlay (drawn with the corners of the frame on screen) ----------
 const arEl = $('ar'), arGrid = $('arGrid'), arQuad = $('arQuad'), arFrom = $('arFrom'), arTo = $('arTo'), arBest = $('arBest'), arReply = $('arReply');
-const AR = { visible: false, vbW: 0, vbH: 0 };
+const AR = { visible: false, vbW: 0, vbH: 0, dirty: false };
 function setPoly(el, pts) {
   if (!pts) { if (el.style.display !== 'none') el.style.display = 'none'; return; }
   el.setAttribute('points', pts);
   if (el.style.display) el.style.display = '';
 }
 function renderAR(now) {
-  const show = running && !!TRACK.f && now - TRACK.lastLockAt < CFG.AR_HOLD_MS && SRC.w > 0;
+  const show = running && !!TRACK.corners && now - TRACK.lastLockAt < CFG.AR_HOLD_MS && SRC.w > 0;
   if (show !== AR.visible) { AR.visible = show; arEl.classList.toggle('on', show); }
-  if (!show) return;
-  const c = cover();
+  if (!show || !AR.dirty) return;
+  AR.dirty = false;
+  const c = TRACK.cov || cover();
   if (c.W !== AR.vbW || c.H !== AR.vbH) { AR.vbW = c.W; AR.vbH = c.H; arEl.setAttribute('viewBox', `0 0 ${c.W} ${c.H}`); }
-  const ex = clamp(now - TRACK.tCap, 0, CFG.AR_PREDICT_MS) / 1000, F = TRACK.f, scr = [];
-  for (let i = 0; i < 4; i++) {
-    const x = F[i * 2].x + F[i * 2].dx * ex, y = F[i * 2 + 1].x + F[i * 2 + 1].dx * ex;
-    scr.push([x * c.s + c.ox, y * c.s + c.oy]);
-  }
+  const F = TRACK.corners, scr = [];
+  for (let i = 0; i < 4; i++) scr.push([F[i * 2] * c.s + c.ox, F[i * 2 + 1] * c.s + c.oy]);
   const Hs = solveH(UNIT, scr);
   if (!Hs) return;
   const P = (u, v) => { const p = applyH(Hs, u, v); return p[0].toFixed(1) + ',' + p[1].toFixed(1); };
@@ -2178,6 +2502,10 @@ function renderAR(now) {
   setPoly(arBest, b && poly(arrowPoly(b.x1, b.y1, b.x2, b.y2, 0.2, 0.5, 0.56)));
   setPoly(arReply, r && poly(arrowPoly(r.x1, r.y1, r.x2, r.y2, 0.13, 0.38, 0.42)));
 }
+function snapFlash() {
+  arQuad.classList.remove('snap'); void arQuad.getBoundingClientRect(); arQuad.classList.add('snap');
+}
+arQuad.addEventListener('animationend', () => arQuad.classList.remove('snap'));
 // ---------- engine HUD ----------
 function scoreText(o, turn) {
   if (o.kind === 'mate') {
@@ -2252,7 +2580,7 @@ $('turnSeg').addEventListener('click', (e) => {
   commitPosition({});
 });
 $('flipBtn').addEventListener('click', () => {
-  POS.flipped = !POS.flipped; POS.orientationKnown = true;
+  POS.flipped = !POS.flipped; POS.orientationKnown = true; POS.flipManual = true;
   toast(POS.flipped ? 'Flipped: Black at the bottom (rank 1 on top)' : 'Flipped: White at the bottom (rank 1 below)');
   if (!POS.known) { renderBoard(); return; }
   POS.lastSan = 'Flipped';
@@ -2280,7 +2608,7 @@ let edCell = -1;
       const grid2 = POS.grid.slice(); grid2[edCell] = p;
       POS.lastSan = 'Edited ' + sqName(cellToSq(edCell, POS.flipped)); POS.trusted = true;
       commitPosition({ grid: grid2, castling: inferCastling(gridToBoard(grid2, POS.flipped)), ep: '-' }, { autoTurn: true });
-      VAL.committed = POS.grid.map((x) => x || '.').join('');
+      voteSync();
       CV.post({ cmd: 'learn', grid: POS.grid, strong: false });
       markEditor();
     });
@@ -2295,6 +2623,7 @@ let edCell = -1;
       const g = boardToGrid(boardFromPlacement(START_PLACEMENT), POS.flipped);
       commitPosition({ grid: g, turn: 'w', castling: 'KQkq', ep: '-', half: 0, full: 1 });
       CV.post({ cmd: 'learn', grid: g, strong: true });
+      voteSync();
       closeEditor();
     }
     if (act === 'rescan') { rescan(); closeEditor(); }
@@ -2302,9 +2631,9 @@ let edCell = -1;
   });
 })();
 function rescan() {
-  VAL.committed = ''; VAL.key = ''; VAL.count = 0;
-  POS.trusted = false; POS.orientationKnown = false;
-  CV.post({ cmd: 'reset' });
+  voteReset(true);
+  POS.trusted = false; POS.orientationKnown = false; POS.flipManual = false;
+  CV.post({ cmd: 'reset' }); CV.post({ cmd: 'ref', oc: null }); CV.refOc = '';
   setScan('Rescanning…');
 }
 function openEditor(cell) {
@@ -2354,7 +2683,7 @@ async function startCamera() {
     } catch (e) { /* optional */ }
   }
   video.srcObject = stream;
-  camView.hidden = false; simCv.hidden = true;
+  camView.hidden = false;
   try { await video.play(); } catch (e) { /* muted + playsinline normally allow autoplay */ }
   await new Promise((res, rej) => {
     const t0 = performance.now();
@@ -2400,7 +2729,7 @@ function cameraErrorText(e) {
   }
 }
 function startSim() {
-  camView.hidden = true; simCv.hidden = false;
+  camView.hidden = false;
   if (!Sim.active) Sim.init(); else Sim.layout();
   SRC.kind = 'sim'; SRC.el = simCv; refreshSourceSize();
 }
@@ -2424,8 +2753,8 @@ async function start() {
   $('icoPlay').setAttribute('hidden', ''); $('icoPause').removeAttribute('hidden');
   CAP.inflight = 0; CAP.newFrame = true; CAP.bitmapOK = CAP.bitmapOK === false ? false : null;
   armFrameCallback();
-  TRACK.miss = CFG.UNLOCK_FRAMES; setLockState('searching');
-  VAL.key = ''; VAL.count = 0;
+  setLockState('searching');
+  voteReset(true); VOTE.lastLockT = VOTE.seenT = 0;   // every start takes a fresh snapshot
   Engine.resume();
   setScan(mode === 'sim' ? 'Demo feed' : 'Point at a board');
   STATS.t0 = 0;
@@ -2437,7 +2766,7 @@ function pause() {
   stopCamera();
   Engine.pause();
   CV.post({ cmd: 'reset' });
-  TRACK.f = null;
+  TRACK.corners = null;
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   setLockState('paused'); setScan('Paused');
   renderAR(performance.now());
@@ -2459,15 +2788,15 @@ function frame(now) {
     STATS.cv = 0; STATS.cvMs = 0; STATS.ui = 0; STATS.t0 = now; CAP.camFrames = 0;
   }
   if (Sim.active && SRC.kind === 'sim') { Sim.update(now); CAP.newFrame = true; }
-  else if (SRC.kind === 'camera' && !CAP.rvfc) drawCamView();
   pump(now);
+  if (performance.now() - DISP.shownAt > CFG.LIVE_AFTER_MS) viewLive();
   renderAR(now);
 }
 
 // ---------- environment events ----------
 function onResize() {
   if (Sim.active && SRC.kind === 'sim') { Sim.layout(); refreshSourceSize(); }
-  AR.vbW = 0;
+  AR.vbW = 0; AR.dirty = true;
 }
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', () => setTimeout(onResize, 250));
@@ -2487,7 +2816,7 @@ loadScript(CFG.CHESSJS_CDNS)
 applyPanel();
 renderBoard(); renderTurn(); renderFen(); setLockState('idle');
 if (!window.isSecureContext) toast('Open over HTTPS to enable the camera (GitHub Pages is HTTPS).', 5000);
-if (PARAMS.get('debug') === '1') window.ChessLens = { POS, VAL, TRACK, CAP, CV, Engine, Sim, assembleFen, TRACE, get arrows() { return ARROWS; } };
+if (PARAMS.get('debug') === '1') window.ChessLens = { POS, VOTE, DISP, TRACK, CAP, CV, Engine, Sim, assembleFen, TRACE, get arrows() { return ARROWS; } };
 })();
 </script>
 </body>
