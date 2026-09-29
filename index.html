@@ -38,7 +38,11 @@
 
   /* ---------- camera / demo stage ---------- */
   #stage{position:fixed;inset:0;overflow:hidden;background:radial-gradient(120% 80% at 50% 20%,#141a2b 0%,#05070d 70%)}
+  /* engine view: the camera shrinks into a small preview (#pipSlot) or is hidden (kept decoding, invisible) */
+  #stage.pip{inset:auto;border-radius:14px;background:#000}
+  #stage.gone{inset:auto;left:0;bottom:0;width:4px;height:4px;opacity:.01;pointer-events:none}
   #cam,#simView{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  #stage.pip #cam,#stage.pip #simView,#stage.gone #cam,#stage.gone #simView{object-fit:contain}
   #ar{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
   #ar .handle{pointer-events:auto;cursor:grab;touch-action:none}
   #ar .quad{pointer-events:auto;cursor:move;touch-action:none}
@@ -87,10 +91,21 @@
   .btn.primary{background:linear-gradient(135deg,var(--neon),#39b6ff);color:#04121a;box-shadow:0 0 18px rgba(45,255,196,.35)}
   .btn.ghost{background:rgba(255,255,255,.08);border:1px solid var(--glass-b)}
 
-  /* ---------- board + HUD panel ---------- */
-  #panel{position:fixed;left:10px;right:10px;bottom:calc(var(--dock) + 22px + var(--sb));z-index:15;display:flex;gap:8px;align-items:stretch}
-  #boardBox{display:flex;gap:5px;flex:none}
-  #evalBar{width:9px;height:var(--bs);border-radius:6px;background:#1b1f27;overflow:hidden;position:relative;border:1px solid var(--glass-b)}
+  /* ---------- engine view: big board + HUD, small camera preview ---------- */
+  #main{position:fixed;left:10px;right:10px;top:calc(50px + var(--st));bottom:calc(var(--dock) + 20px + var(--sb));z-index:15;
+    display:flex;flex-direction:column;gap:10px}
+  #boardArea{flex:1 1 auto;min-height:0;min-width:0;display:flex;align-items:center;justify-content:center}
+  #boardBox{display:flex;gap:6px;flex:none}
+  #lower{flex:none;display:flex;gap:8px;min-height:0;min-width:0}
+  #pipSlot{position:relative;flex:none;align-self:center;border-radius:14px;pointer-events:none;
+    box-shadow:0 0 0 1px var(--glass-b),0 8px 22px rgba(0,0,0,.45)}
+  #pipSlot .pipLbl{position:absolute;left:7px;bottom:6px;font-size:9.5px;font-weight:800;letter-spacing:.08em;color:#fff;
+    text-shadow:0 1px 2px #000;opacity:.85}
+  #pipSlot .pipBtn{position:absolute;top:5px;right:5px;width:30px;height:30px;border-radius:50%;pointer-events:auto;
+    display:flex;align-items:center;justify-content:center;background:rgba(5,7,13,.7);border:1px solid var(--glass-b)}
+  #pipSlot .pipBtn svg{width:16px;height:16px}
+  body.camHidden #pipSlot{display:none}
+  #evalBar{width:10px;height:var(--bs);border-radius:6px;background:#1b1f27;overflow:hidden;position:relative;border:1px solid var(--glass-b)}
   #evalFill{position:absolute;left:0;right:0;bottom:0;height:50%;background:linear-gradient(180deg,#fff,#dfe6f5);transition:height .35s ease}
   #evalBar.flip #evalFill{top:0;bottom:auto}
   #board{position:relative;width:var(--bs);height:var(--bs);display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);
@@ -110,14 +125,17 @@
   #boardEmpty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;z-index:3;
     font-size:12px;font-weight:700;color:#fff;background:rgba(5,7,13,.55);pointer-events:none}
 
-  #hud{flex:1;min-width:0;border-radius:16px;padding:9px 10px;display:flex;flex-direction:column;gap:6px;font-size:12px;overflow:hidden}
-  #engState{align-self:flex-start;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px;
+  #hud{flex:1 1 auto;min-width:0;min-height:0;border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:12.5px;overflow:hidden}
+  .hudTop{display:flex;align-items:center;justify-content:space-between;gap:6px}
+  .mini{padding:4px 9px;border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.04em;background:rgba(255,255,255,.08);
+    border:1px solid var(--glass-b);color:var(--txt);white-space:nowrap}
+  #engState{white-space:nowrap;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px;
     background:rgba(255,255,255,.08);color:var(--mut)}
   #engState.think{color:var(--neon);box-shadow:inset 0 0 0 1px rgba(45,255,196,.4)}
   #engState.bad{color:var(--bad)}
-  .score{display:flex;align-items:baseline;gap:8px;min-width:0}
-  #scoreTxt{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-  #bestTxt{font-size:15px;font-weight:800;color:var(--neon);text-shadow:0 0 12px rgba(45,255,196,.6);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .score{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px;min-width:0}
+  #scoreTxt{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  #bestTxt{font-size:19px;font-weight:800;color:var(--neon);text-shadow:0 0 12px rgba(45,255,196,.6);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;color:var(--mut)}
   .kv b{color:var(--txt);font-weight:700;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #fenTxt{margin-top:auto;font:10px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--mut);word-break:break-all;
@@ -159,10 +177,17 @@
   #editor .row .btn{flex:1}
 
   @media (orientation:landscape){
-    #panel,#calib,#editor{left:auto;width:min(52vw,480px)}
+    #calib,#editor{left:auto;width:min(52vw,480px)}
+    #main{flex-direction:row}
+    #lower{flex-direction:column}
   }
   @media (orientation:landscape) and (max-height:520px){
-    :root{--bs:min(52vh,24vw,220px);--dock:60px}
+    :root{--dock:60px}
+    #main{top:calc(44px + var(--st))}
+    #hud{padding:7px 10px;gap:3px}
+    #scoreTxt{font-size:22px} #bestTxt{font-size:16px}
+    .kv{grid-template-columns:auto 1fr auto 1fr}
+    #fenTxt{display:none}
     #intro{padding-bottom:calc(var(--dock) + 30px)}
     #intro ol{display:none}
     #calib .txt span:nth-child(2){display:none}
@@ -224,32 +249,42 @@
   </div>
 </section>
 
-<section id="panel" hidden>
-  <div id="boardBox">
-    <div id="evalBar"><div id="evalFill"></div></div>
-    <div id="board">
-      <svg id="boardSvg" viewBox="0 0 8 8" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <filter id="bglow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation=".06" result="b"/>
-            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-        <g id="boardArrows" filter="url(#bglow)"></g>
-      </svg>
-      <div id="boardEmpty">Waiting for a stable board…</div>
+<section id="main" hidden>
+  <div id="boardArea">
+    <div id="boardBox">
+      <div id="evalBar"><div id="evalFill"></div></div>
+      <div id="board">
+        <svg id="boardSvg" viewBox="0 0 8 8" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <filter id="bglow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation=".06" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <g id="boardArrows" filter="url(#bglow)"></g>
+        </svg>
+        <div id="boardEmpty">Waiting for a stable board…</div>
+      </div>
     </div>
   </div>
-  <div id="hud" class="glass">
-    <span id="engState">Engine · off</span>
-    <div class="score"><span id="scoreTxt">—</span><span id="bestTxt"></span></div>
-    <div class="kv">
-      <span>Depth</span><b id="depthTxt">—</b>
-      <span>Last</span><b id="lastTxt">—</b>
-      <span>Scan</span><b id="scanTxt">—</b>
-      <span title="CV loop rate · CV time per pass · UI frame rate">Loop</span><b id="fpsTxt">—</b>
+  <div id="lower">
+    <div id="pipSlot">
+      <span class="pipLbl">CAMERA</span>
+      <button class="pipBtn" id="pipHide" aria-label="Hide camera">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
     </div>
-    <div id="fenTxt" title="Tap to copy FEN">—</div>
+    <div id="hud" class="glass">
+      <div class="hudTop"><span id="engState">Engine · off</span><button id="camToggle" class="mini">Hide cam</button></div>
+      <div class="score"><span id="scoreTxt">—</span><span id="bestTxt"></span></div>
+      <div class="kv">
+        <span>Depth</span><b id="depthTxt">—</b>
+        <span>Last</span><b id="lastTxt">—</b>
+        <span>Scan</span><b id="scanTxt">—</b>
+        <span title="CV loop rate · CV time per pass · UI frame rate">Loop</span><b id="fpsTxt">—</b>
+      </div>
+      <div id="fenTxt" title="Tap to copy FEN">—</div>
+    </div>
   </div>
 </section>
 
@@ -308,11 +343,10 @@
 // Configuration
 // ======================================================================
 const CFG = {
-  TICK_MS: 400,              // CV loop period
-  STABLE_MS: 1000,           // board must stay still this long after motion before re-reading it
+  TICK_MS: 120,              // CV loop period (~8 Hz, a few ms of work per pass)
+  STABLE_MS: 200,            // board must stay still this long after motion before re-reading it
   CELL: 40,                  // px per cell in the flattened grid (8*40 = 320)
-  INSET: 5,                  // inner-cell analysis inset (px)
-  SHAPE: 15,                 // silhouette template resolution (15x15)
+  SHAPE: 19,                 // silhouette template resolution (19x19)
   ENGINE_DEPTH: 14,
   ENGINE_MOVETIME: 250,
   REFINE_ROUNDS: 5,          // extra 250 ms passes (hash-warm) while the position is unchanged
@@ -325,7 +359,8 @@ const CFG = {
     'https://unpkg.com/chess.js@0.10.3/chess.js'
   ],
   LS_CORNERS: 'chesslens.corners.v1',
-  LS_TPL: 'chesslens.templates.v1'
+  LS_TPL: 'chesslens.templates.v2',
+  LS_CAM: 'chesslens.camHidden'
 };
 const PARAMS = new URLSearchParams(location.search);
 const START_PLACEMENT = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
@@ -431,9 +466,13 @@ function sourceReady() {
   if (SRC.kind === 'camera') return video.readyState >= 2 && video.videoWidth > 0;
   return SRC.kind === 'sim' && Sim.active;
 }
+// full-screen (calibration): object-fit cover; small preview in the engine view: contain
+let pipMap = null;           // engine-view preview: the video is zoomed onto the board region
 function cover() {
+  if (pipMap && stageEl.classList.contains('pip')) return pipMap;
   const W = stageEl.clientWidth, H = stageEl.clientHeight;
-  const s = Math.max(W / (SRC.w || 1), H / (SRC.h || 1));
+  const fit = stageEl.classList.contains('pip') || stageEl.classList.contains('gone') ? Math.min : Math.max;
+  const s = fit(W / (SRC.w || 1), H / (SRC.h || 1));
   return { s, ox: (W - SRC.w * s) / 2, oy: (H - SRC.h * s) / 2, W, H };
 }
 function normToScreen(p, c = cover()) { return [p[0] * SRC.w * c.s + c.ox, p[1] * SRC.h * c.s + c.oy]; }
@@ -497,9 +536,10 @@ const Sim = {
     this.active = true;
   },
   layout() {
-    const r = stageEl.getBoundingClientRect();
-    const k = Math.min(1, 900 / Math.max(r.width, r.height));
-    const W = this.W = Math.max(200, Math.round(r.width * k)), H = this.H = Math.max(200, Math.round(r.height * k));
+    // sized from the window, not the stage, so shrinking the camera preview never shrinks the feed
+    this.winW = window.innerWidth; this.winH = window.innerHeight;
+    const k = Math.min(1, 900 / Math.max(this.winW, this.winH));
+    const W = this.W = Math.max(200, Math.round(this.winW * k)), H = this.H = Math.max(200, Math.round(this.winH * k));
     simCv.width = this.bg.width = this.base.width = W;
     simCv.height = this.bg.height = this.base.height = H;
     const tb = targetBox(W, H), S = tb.S, cx = tb.x + S / 2, top = tb.y;
@@ -597,20 +637,21 @@ const Sim = {
 // ======================================================================
 const cal = {
   corners: null, locked: false, calibrating: false,
-  occThr: 0.07, colThr: 0.035,   // learned from the start position when available
-  tpl: null, generic: null        // {w:{P:Float32Array(225),...}, b:{...}}
+  occThr: null, colMid: 0,       // learned from the start position when available
+  tpl: null, generic: null        // {w:{P:Float32Array(361),...}, b:{...}}
 };
 (function restoreTemplates() {
   const t = recall(CFG.LS_TPL);
   if (t && t.w && t.b) {
     cal.tpl = { w: {}, b: {} };
-    for (const c of ['w', 'b']) for (const k of TYPES) if (t[c][k]) cal.tpl[c][k] = Float32Array.from(t[c][k]);
-    cal.occThr = t.occThr || cal.occThr; cal.colThr = t.colThr || cal.colThr;
+    for (const c of ['w', 'b']) for (const k of TYPES) if (t[c][k] && t[c][k].length === CFG.SHAPE * CFG.SHAPE) cal.tpl[c][k] = Float32Array.from(t[c][k]);
+    if (typeof t.occThr === 'number') cal.occThr = t.occThr;
+    if (typeof t.colMid === 'number') cal.colMid = t.colMid;
   }
 })();
 function saveTemplates() {
   if (!cal.tpl) return;
-  const o = { w: {}, b: {}, occThr: cal.occThr, colThr: cal.colThr };
+  const o = { w: {}, b: {}, occThr: cal.occThr, colMid: cal.colMid };
   for (const c of ['w', 'b']) for (const k of TYPES) if (cal.tpl[c][k]) o[c][k] = Array.from(cal.tpl[c][k], (v) => +v.toFixed(3));
   store(CFG.LS_TPL, o);
 }
@@ -688,7 +729,7 @@ function signature(img) {
   }
   return sig;
 }
-const DEB = { prev: null, ref: null, state: 'idle', stableSince: 0, noise: 1.5, last: 0 };
+const DEB = { prev: null, prevT: 0, ref: null, state: 'idle', stableSince: 0, noise: 1.5, last: 0 };
 const DEL = new Float32Array(1024), DSORT = new Float32Array(1024), BLK = new Float32Array(16);
 // Largest per-cell change between two signatures. Per cell: mean of its 4 most-changed blocks,
 // so even a small pawn registers. The global median shift is removed first (auto-exposure, flicker).
@@ -706,7 +747,8 @@ function cellDiffMax(a, b) {
   return max;
 }
 function debounceStep(sig, now) {
-  const prev = DEB.prev; DEB.prev = sig;
+  const prev = DEB.prev, prevT = DEB.prevT;
+  DEB.prev = sig; DEB.prevT = now;
   if (!prev) return 'init';
   const max = cellDiffMax(sig, prev);
   DEB.last = max;
@@ -716,7 +758,7 @@ function debounceStep(sig, now) {
   if (max > SPIKE || drift) { DEB.state = 'moving'; DEB.stableSince = 0; return 'spike'; }
   if (DEB.state === 'moving') {
     if (max < STABLE) {
-      if (!DEB.stableSince) DEB.stableSince = now;
+      if (!DEB.stableSince) DEB.stableSince = prevT;     // still since the previous frame
       if (now - DEB.stableSince >= CFG.STABLE_MS) { DEB.state = 'idle'; DEB.stableSince = 0; return 'capture'; }
       return 'settling';
     }
@@ -730,9 +772,15 @@ function debounceStep(sig, now) {
 // ======================================================================
 // CV stage 3: per-cell features on the flattened grid
 //   background = median colour of a ring near the cell border (robust to highlights & themes)
-//   occupancy  = fraction of inner pixels far from that background
-//   colour     = eroded "dark core" (black pieces have solid dark bodies, white ones thin outlines)
-//   shape      = 15x15 silhouette used for piece-type template matching
+//   silhouette = pixels far from that background, 1-2 px gaps closed and holes filled, so an
+//                over-exposed white piece whose body blends into a light square still counts
+//                through its outline
+//   occupancy  = central area of the largest silhouette blob (ignores specks, labels, edge bleed)
+//   colour     = median brightness of the silhouette interior vs. the midpoint of the two square
+//                colours measured in the same frame: white pieces sit above it, black pieces
+//                below, whatever the exposure or theme
+//   shape      = 19x19 silhouette used for piece-type template matching
+//   highlight  = the two squares whose colour departs from their parity (site's last-move marks)
 // ======================================================================
 const hR = new Uint32Array(256), hG = new Uint32Array(256), hB = new Uint32Array(256);
 function histMedian(h, n) { let acc = 0; const half = n / 2; for (let i = 0; i < 256; i++) { acc += h[i]; if (acc >= half) return i; } return 255; }
@@ -753,62 +801,162 @@ function ringStats(d, W, x0, y0) {
   }
   return { r, g, b, lum: (r * 77 + g * 150 + b * 29) >> 8, dev: dev / n };
 }
-const MASK = new Uint8Array(900), DARK = new Uint8Array(900);
-function innerStats(d, W, x0, y0, ring, darkThr) {
-  const I = CFG.INSET, N = 40 - 2 * I;              // 30x30
-  const T = clamp(ring.dev * 2.5 + 22, 34, 90);
+const RN = 38, RA = RN * RN, CEN0 = 5, CEN1 = 33, CEN_A = (CEN1 - CEN0) * (CEN1 - CEN0);
+const MASK = new Uint8Array(RA), DIL = new Uint8Array(RA), OUT = new Uint8Array(RA);
+const ER = new Uint8Array(RA), ER2 = new Uint8Array(RA), LUM = new Uint8Array(RA);
+const LAB = new Int32Array(RA), STK = new Int32Array(RA), HL = new Uint32Array(256);
+function innerStats(d, W, x0, y0, ring) {
+  // clipped (over-exposed) squares have almost no noise, so faint outlines on them still count
+  const T = clamp(ring.dev * 2.5 + 18, 24, 90);
   let fg = 0;
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const p = ((y0 + I + y) * W + x0 + I + x) * 4, i = y * N + x;
-    const r = d[p], g = d[p + 1], b = d[p + 2];
-    const dist = Math.abs(r - ring.r) + Math.abs(g - ring.g) + Math.abs(b - ring.b);
-    if (dist > T) {
-      MASK[i] = 1; fg++;
-      DARK[i] = ((r * 77 + g * 150 + b * 29) >> 8) < darkThr ? 1 : 0;
-    } else { MASK[i] = 0; DARK[i] = 0; }
+  for (let y = 0; y < RN; y++) {
+    const row = (y0 + 1 + y) * W + x0 + 1;
+    for (let x = 0; x < RN; x++) {
+      const p = (row + x) * 4, i = y * RN + x, r = d[p], g = d[p + 1], b = d[p + 2];
+      LUM[i] = (r * 77 + g * 150 + b * 29) >> 8;
+      const on = Math.abs(r - ring.r) + Math.abs(g - ring.g) + Math.abs(b - ring.b) > T ? 1 : 0;
+      MASK[i] = on; fg += on;
+    }
   }
-  let core = 0;
-  for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
-    const i = y * N + x;
-    if (DARK[i] && DARK[i - 1] && DARK[i + 1] && DARK[i - N] && DARK[i + N] &&
-        DARK[i - N - 1] && DARK[i - N + 1] && DARK[i + N - 1] && DARK[i + N + 1]) core++;
+  // drop the outer 2 px: bleed from neighbouring squares (slight misalignment) would otherwise form a
+  // closed frame that the hole filling turns into a fake full-square piece
+  for (let k = 0; k < RN; k++) for (let j = 0; j < 2; j++) {
+    MASK[j * RN + k] = 0; MASK[(RN - 1 - j) * RN + k] = 0; MASK[k * RN + j] = 0; MASK[k * RN + RN - 1 - j] = 0;
+  }
+  // 5x5 dilation (separable) closes the gaps in faint, broken outlines before hole filling
+  for (let y = 0; y < RN; y++) for (let x = 0; x < RN; x++) {
+    const i = y * RN + x;
+    ER[i] = MASK[i] || (x > 0 && MASK[i - 1]) || (x > 1 && MASK[i - 2]) || (x < RN - 1 && MASK[i + 1]) || (x < RN - 2 && MASK[i + 2]) ? 1 : 0;
+  }
+  for (let y = 0; y < RN; y++) for (let x = 0; x < RN; x++) {
+    const i = y * RN + x;
+    DIL[i] = ER[i] || (y > 0 && ER[i - RN]) || (y > 1 && ER[i - 2 * RN]) || (y < RN - 1 && ER[i + RN]) || (y < RN - 2 && ER[i + 2 * RN]) ? 1 : 0;
+  }
+  // background = everything reachable from the region border without crossing the silhouette
+  OUT.fill(0);
+  let sp = 0;
+  const seed = (i) => { if (!DIL[i] && !OUT[i]) { OUT[i] = 1; STK[sp++] = i; } };
+  for (let k = 0; k < RN; k++) { seed(k); seed((RN - 1) * RN + k); seed(k * RN); seed(k * RN + RN - 1); }
+  while (sp) {
+    const i = STK[--sp], x = i % RN;
+    if (x > 0) seed(i - 1);
+    if (x < RN - 1) seed(i + 1);
+    if (i >= RN) seed(i - RN);
+    if (i < RA - RN) seed(i + RN);
+  }
+  // largest silhouette blob, measured by its area inside the central zone
+  LAB.fill(0);
+  let nLab = 0, best = 0, bestCen = 0;
+  for (let i0 = 0; i0 < RA; i0++) {
+    if (OUT[i0] || LAB[i0]) continue;
+    const lab = ++nLab;
+    let cen = 0;
+    LAB[i0] = lab; STK[sp++] = i0;
+    while (sp) {
+      const i = STK[--sp], x = i % RN, y = (i / RN) | 0;
+      if (x >= CEN0 && x < CEN1 && y >= CEN0 && y < CEN1) cen++;
+      if (x > 0 && !OUT[i - 1] && !LAB[i - 1]) { LAB[i - 1] = lab; STK[sp++] = i - 1; }
+      if (x < RN - 1 && !OUT[i + 1] && !LAB[i + 1]) { LAB[i + 1] = lab; STK[sp++] = i + 1; }
+      if (y > 0 && !OUT[i - RN] && !LAB[i - RN]) { LAB[i - RN] = lab; STK[sp++] = i - RN; }
+      if (y < RN - 1 && !OUT[i + RN] && !LAB[i + RN]) { LAB[i + RN] = lab; STK[sp++] = i + RN; }
+    }
+    if (cen > bestCen) { bestCen = cen; best = lab; }
+  }
+  // shape: undo the 5x5 dilation with a 5x5 erosion (morphological closing + hole fill),
+  // which keeps the piece outline crisp enough to tell a pawn from a knight
+  for (let y = 0; y < RN; y++) for (let x = 0; x < RN; x++) {
+    const i = y * RN + x, v = (j) => best && LAB[j] === best;
+    ER2[i] = v(i) && x > 1 && x < RN - 2 && v(i - 1) && v(i - 2) && v(i + 1) && v(i + 2) ? 1 : 0;
+  }
+  let n = 0;
+  for (let y = 0; y < RN; y++) for (let x = 0; x < RN; x++) {
+    const i = y * RN + x;
+    const v = ER2[i] && y > 1 && y < RN - 2 && ER2[i - RN] && ER2[i - 2 * RN] && ER2[i + RN] && ER2[i + 2 * RN] ? 1 : 0;
+    ER[i] = v; n += v;
   }
   const S = CFG.SHAPE, shape = new Float32Array(S * S);
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const i = (2 * y) * N + 2 * x;
-    shape[y * S + x] = (MASK[i] + MASK[i + 1] + MASK[i + N] + MASK[i + N + 1]) / 4;
+    const i = 2 * y * RN + 2 * x;
+    shape[y * S + x] = (ER[i] + ER[i + 1] + ER[i + RN] + ER[i + RN + 1]) / 4;
   }
-  return { fgFrac: fg / (N * N), darkFrac: core / (N * N), shape };
+  // colour: peel the outline (1-2 px) off the closed silhouette, then take the median brightness
+  for (let pass = 0; pass < 2 && n; pass++) {
+    let m = 0;
+    for (let y = 1; y < RN - 1; y++) for (let x = 1; x < RN - 1; x++) {
+      const i = y * RN + x;
+      const v = ER[i] && ER[i - 1] && ER[i + 1] && ER[i - RN] && ER[i + RN] &&
+        ER[i - RN - 1] && ER[i - RN + 1] && ER[i + RN - 1] && ER[i + RN + 1] ? 1 : 0;
+      ER2[i] = v; m += v;
+    }
+    if (m < 12) break;
+    for (let i = 0; i < RA; i++) ER[i] = ER2[i];
+    for (let k = 0; k < RN; k++) { ER[k] = 0; ER[(RN - 1) * RN + k] = 0; ER[k * RN] = 0; ER[k * RN + RN - 1] = 0; }
+    n = m;
+  }
+  let medLum = ring.lum;
+  if (n) { HL.fill(0); for (let i = 0; i < RA; i++) if (ER[i]) HL[LUM[i]]++; medLum = histMedian(HL, n); }
+  return { fgFrac: fg / RA, occ: bestCen / CEN_A, medLum, shape };
 }
+// 1-D Otsu split (threshold maximising between-class variance)
+function otsu(vals) {
+  const s = Float64Array.from(vals).sort(), n = s.length;
+  if (n < 2) return n ? s[0] : 0;
+  let tot = 0;
+  for (let i = 0; i < n; i++) tot += s[i];
+  let cum = 0, best = -1, thr = (s[0] + s[n - 1]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    cum += s[i];
+    if (s[i + 1] <= s[i]) continue;
+    const w0 = i + 1, w1 = n - w0, dm = cum / w0 - (tot - cum) / w1, v = w0 * w1 * dm * dm;
+    if (v > best) { best = v; thr = (s[i] + s[i + 1]) / 2; }
+  }
+  return thr;
+}
+const parityOf = (cell) => ((cell >> 3) + (cell & 7)) & 1;
 function analyzeGrid(img) {
   const d = img.data, W = img.width, rings = new Array(64);
   let s0 = 0, s1 = 0;
   for (let cell = 0; cell < 64; cell++) {
     const r = cell >> 3, c = cell & 7;
     rings[cell] = ringStats(d, W, c * 40, r * 40);
-    if ((r + c) & 1) s1 += rings[cell].lum; else s0 += rings[cell].lum;
+    if (parityOf(cell)) s1 += rings[cell].lum; else s0 += rings[cell].lum;
   }
   const m0 = s0 / 32, m1 = s1 / 32;
   const darkSq = Math.min(m0, m1), lightSq = Math.max(m0, m1);
   let agree = 0;
   for (let cell = 0; cell < 64; cell++) {
-    const par = ((cell >> 3) + (cell & 7)) & 1, own = par ? m1 : m0, oth = par ? m0 : m1;
+    const own = parityOf(cell) ? m1 : m0, oth = parityOf(cell) ? m0 : m1;
     if (Math.abs(rings[cell].lum - own) < Math.abs(rings[cell].lum - oth)) agree++;
   }
   const conf = Math.abs(m0 - m1) > 10 ? agree / 64 : 0;
-  const darkThr = darkSq * 0.8;
+  // last-move highlight: exactly two squares whose colour clearly departs from their parity's usual colour
+  const base = [0, 1].map((par) => ['r', 'g', 'b'].map((ch) => {
+    const v = [];
+    for (let cell = 0; cell < 64; cell++) if (parityOf(cell) === par) v.push(rings[cell][ch]);
+    return v.sort((a, b) => a - b)[16];
+  }));
+  const hs = rings.map((r, cell) => { const b = base[parityOf(cell)]; return Math.abs(r.r - b[0]) + Math.abs(r.g - b[1]) + Math.abs(r.b - b[2]); });
+  const ord = [...Array(64).keys()].sort((a, b) => hs[b] - hs[a]);
+  const hl = hs[ord[1]] > 40 && hs[ord[1]] > 2 * hs[ord[2]] + 12 ? [ord[0], ord[1]] : null;
+  const mid = (lightSq + darkSq) / 2, range = Math.max(24, lightSq - darkSq);
   const cells = new Array(64);
   for (let cell = 0; cell < 64; cell++) {
-    const r = cell >> 3, c = cell & 7;
-    cells[cell] = innerStats(d, W, c * 40, r * 40, rings[cell], darkThr);
+    const c = innerStats(d, W, (cell & 7) * 40, (cell >> 3) * 40, rings[cell]);
+    c.z = (c.medLum - mid) / range;
+    cells[cell] = c;
   }
-  return { cells, conf, darkSq, lightSq, t: performance.now() };
+  // per-frame adaptive thresholds, anchored to what was learned from the start position.
+  // At least 32 squares are always empty, so the lower half of the values measures empty-square noise.
+  const occSorted = cells.map((c) => c.occ).sort((a, b) => a - b);
+  const occThr = cal.occThr != null ? cal.occThr : clamp(occSorted[26] * 2 + 0.05, 0.06, 0.15);
+  const zs = cells.filter((c) => c.occ > occThr).map((c) => c.z);
+  const colThr = zs.length >= 3 ? clamp(otsu(zs), cal.colMid - 0.25, cal.colMid + 0.25) : cal.colMid;
+  return { cells, conf, darkSq, lightSq, hl, occThr, colThr, t: performance.now() };
 }
 function observe(an) {
-  const cs = Math.max(0.006, cal.colThr * 0.35);
   return an.cells.map((c) => {
-    const pOcc = sigmoid((c.fgFrac - cal.occThr) / 0.012);
-    const pW = 1 - sigmoid((c.darkFrac - cal.colThr) / cs);
+    const pOcc = sigmoid((c.occ - an.occThr) / 0.02);
+    const pW = sigmoid((c.z - an.colThr) / 0.07);
     return { pOcc, pW, occ: pOcc > 0.5, white: pW > 0.5 };
   });
 }
@@ -824,8 +972,7 @@ function buildGenericTemplates() {
     ctx.fillStyle = '#8b9098'; ctx.fillRect(0, 0, 40, 40);
     drawPiece(ctx, col === 'w' ? t : t.toLowerCase(), 20, 20, 40);
     const d = ctx.getImageData(0, 0, 40, 40).data;
-    const ring = ringStats(d, 40, 0, 0);
-    out[col][t] = innerStats(d, 40, 0, 0, ring, ring.lum * 0.8).shape;
+    out[col][t] = innerStats(d, 40, 0, 0, ringStats(d, 40, 0, 0)).shape;
   }
   return out;
 }
@@ -854,26 +1001,39 @@ function typeScores(shape, col) {
   return sc;
 }
 function learnFromStart(an, flipped) {
-  const start = boardFromPlacement(START_PLACEMENT);
-  const acc = {}, cnt = {}, occ = [], emp = [], wd = [], bd = [];
+  const start = boardFromPlacement(START_PLACEMENT), A = CFG.SHAPE * CFG.SHAPE;
+  const acc = {}, cnt = {}, emp = [], wz = [], bz = [];
   for (let cell = 0; cell < 64; cell++) {
     const p = start[cellToSq(cell, flipped)], c = an.cells[cell];
-    if (!p) { emp.push(c.fgFrac); continue; }
-    occ.push(c.fgFrac);
+    if (!p) { emp.push(c.occ); continue; }
+    if (c.occ <= an.occThr) continue;              // faded piece: don't learn from its fragments
     const col = p === p.toUpperCase() ? 'w' : 'b', key = col + p.toUpperCase();
-    (col === 'w' ? wd : bd).push(c.darkFrac);
-    if (!acc[key]) { acc[key] = new Float32Array(225); cnt[key] = 0; }
-    for (let i = 0; i < 225; i++) acc[key][i] += c.shape[i];
+    (col === 'w' ? wz : bz).push(c.z);
+    if (!acc[key]) { acc[key] = new Float32Array(A); cnt[key] = 0; }
+    for (let i = 0; i < A; i++) acc[key][i] += c.shape[i];
     cnt[key]++;
   }
-  cal.tpl = { w: {}, b: {} };
-  for (const key in acc) { const a = acc[key]; for (let i = 0; i < 225; i++) a[i] /= cnt[key]; cal.tpl[key[0]][key[1]] = a; }
-  const minOcc = Math.min(...occ), maxEmp = Math.max(...emp);
-  if (minOcc > maxEmp) cal.occThr = clamp(maxEmp + (minOcc - maxEmp) * 0.4, 0.02, 0.3);
-  const maxW = Math.max(...wd), minB = Math.min(...bd);
-  const med = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
-  cal.colThr = clamp(minB > maxW ? (maxW + minB) / 2 : (med(wd) + med(bd)) / 2, 0.004, 0.35);
+  cal.tpl = cal.tpl || { w: {}, b: {} };
+  for (const key in acc) { const a = acc[key]; for (let i = 0; i < A; i++) a[i] /= cnt[key]; cal.tpl[key[0]][key[1]] = a; }
+  // occupancy threshold from the 32 known-empty squares' noise (low enough to catch faint pieces)
+  cal.occThr = clamp(Math.max(...emp) * 1.5 + 0.02, 0.025, 0.2);
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  if (wz.length && bz.length) cal.colMid = clamp((mean(wz) + mean(bz)) / 2, -0.4, 0.4);
   saveTemplates();
+}
+// While a trusted position is tracked cleanly, keep refining the piece-set templates (saved for next time),
+// so starting mid-game on a site you've used before reads piece types correctly.
+let tplSaveT = 0;
+function learnOnline(an) {
+  if (!cal.tpl) cal.tpl = { w: {}, b: {} };
+  for (let cell = 0; cell < 64; cell++) {
+    const p = POS.grid[cell];
+    if (!p) continue;
+    const col = p === p.toUpperCase() ? 'w' : 'b', t = p.toUpperCase(), shape = an.cells[cell].shape, cur = cal.tpl[col][t];
+    if (!cur) cal.tpl[col][t] = Float32Array.from(shape);
+    else for (let i = 0; i < cur.length; i++) cur[i] += (shape[i] - cur[i]) * 0.06;
+  }
+  if (performance.now() - tplSaveT > 8000) { tplSaveT = performance.now(); saveTemplates(); }
 }
 function learnCell(cell, piece) {
   if (!lastAnalysis || !piece) return;
@@ -881,7 +1041,7 @@ function learnCell(cell, piece) {
   if (!cal.tpl) cal.tpl = { w: {}, b: {} };
   const shape = lastAnalysis.cells[cell].shape, cur = cal.tpl[col][t];
   if (!cur) cal.tpl[col][t] = Float32Array.from(shape);
-  else for (let i = 0; i < 225; i++) cur[i] = cur[i] * 0.7 + shape[i] * 0.3;
+  else for (let i = 0; i < cur.length; i++) cur[i] = cur[i] * 0.7 + shape[i] * 0.3;
   saveTemplates();
 }
 
@@ -904,7 +1064,8 @@ function inferCastling(b) {
 const POS = {
   grid: new Array(64).fill(''), flipped: false, orientationKnown: false,
   turn: 'w', castling: '-', ep: '-', half: 0, full: 1,
-  known: false, valid: false, reason: '', fen: '', game: null, lastSan: ''
+  known: false, valid: false, reason: '', fen: '', game: null, lastSan: '',
+  trusted: false        // true when the piece types are known to be right (start position / user-checked)
 };
 // Dynamic FEN assembler: scanned grid + toolbar orientation (flip) + toolbar turn.
 function assembleFen() {
@@ -956,33 +1117,76 @@ function applyGameFen(fen, san) {
 }
 
 // ======================================================================
-// Recognition: legal-move tracker + full re-sync classifier
+// Recognition: legal-move tracker + confirmed full re-sync, with side-to-move inference
 // ======================================================================
-let lastAnalysis = null, forceCapture = false, forceResync = false;
+let lastAnalysis = null, forceCapture = false, forceResync = false, recheckAt = 0, pendingResync = null;
+let hlSeen = 0, holdCount = 0;     // how often the site's last-move highlight was seen; holds while it's missing
+const other = (c) => (c === 'w' ? 'b' : 'w');
+const colorOf = (p) => (p === p.toUpperCase() ? 'w' : 'b');
+function gridDiff(a, b) { let n = 0; for (let i = 0; i < 64; i++) if (a[i] !== b[i]) n++; return n; }
+// Start position: middle four ranks empty, the two edge ranks on each side (nearly) full and split by colour.
+// Up to 3 missing pieces are tolerated: over-exposed white pawns on light squares can fade out.
 function startPattern(an) {
-  const idx = [...Array(64).keys()].sort((a, b) => an.cells[b].fgFrac - an.cells[a].fgFrac);
-  const top = new Set(idx.slice(0, 32));
-  for (let c = 0; c < 64; c++) { const r = c >> 3, want = r < 2 || r > 5; if (want !== top.has(c)) return null; }
-  const lo = an.cells[idx[31]].fgFrac, hi = an.cells[idx[32]].fgFrac;
-  if (!(lo > hi * 1.6 + 0.01)) return null;
-  let topDark = 0, botDark = 0;
-  for (let c = 0; c < 16; c++) topDark += an.cells[c].darkFrac;
-  for (let c = 48; c < 64; c++) botDark += an.cells[c].darkFrac;
-  if (Math.abs(topDark - botDark) / 16 < 0.004) return null;
-  const blackOnTop = topDark > botDark;
-  const thr = (topDark + botDark) / 32;
+  const thr = an.occThr;
+  let missing = 0, topZ = 0, topN = 0, botZ = 0, botN = 0;
+  for (let c = 0; c < 64; c++) {
+    const r = c >> 3, occ = an.cells[c].occ, edge = r < 2 || r > 5;
+    if (!edge) { if (occ > Math.max(thr, 0.04)) return null; continue; }
+    if (occ <= thr) { missing++; continue; }
+    if (r < 2) { topZ += an.cells[c].z; topN++; } else { botZ += an.cells[c].z; botN++; }
+  }
+  if (missing > 3 || !topN || !botN) return null;
+  topZ /= topN; botZ /= botN;
+  if (Math.abs(topZ - botZ) < 0.2) return null;
+  const blackOnTop = topZ < botZ, zt = (topZ + botZ) / 2;
   let wrong = 0;
   for (let c = 0; c < 64; c++) {
-    const r = c >> 3; if (r >= 2 && r <= 5) continue;
-    const isDark = an.cells[c].darkFrac > thr, shouldDark = (r < 2) === blackOnTop;
-    if (isDark !== shouldDark) wrong++;
+    const r = c >> 3;
+    if ((r >= 2 && r <= 5) || an.cells[c].occ <= thr) continue;
+    if ((an.cells[c].z < zt) !== ((r < 2) === blackOnTop)) wrong++;
   }
-  return wrong <= 3 ? { flipped: !blackOnTop } : null;
+  return wrong <= 2 ? { flipped: !blackOnTop } : null;
 }
 function isStartGrid() {
   return placementFromBoard(gridToBoard(POS.grid, POS.flipped)) === START_PLACEMENT;
 }
-function trackMoves(obs) {
+// The site's own last-move highlight: {from, to} cells and the colour that just moved.
+function highlightMove(an, obs) {
+  if (!an.hl) return null;
+  const [a, b] = an.hl, oa = obs[a].occ, ob = obs[b].occ;
+  if (oa === ob) return null;                 // e.g. castling shown on king+rook squares, or a selection
+  const to = oa ? a : b;
+  return { from: oa ? b : a, to, color: obs[to].white ? 'w' : 'b' };
+}
+// Squares that emptied since the last read belonged to the side that moved.
+function moverFromDiff(oldGrid, newGrid) {
+  let w = 0, b = 0;
+  for (let c = 0; c < 64; c++) { const o = oldGrid[c]; if (o && !newGrid[c]) { if (colorOf(o) === 'w') w++; else b++; } }
+  return w > b ? 'w' : b > w ? 'b' : null;
+}
+function fenWithTurn(turn) { const f = assembleFen().split(' '); f[1] = turn; f[3] = '-'; return f.join(' '); }
+// Position unchanged but the highlight says the side to move is wrong (e.g. a manual toggle or a missed flip).
+function fixTurnFromHighlight(hlm) {
+  if (!hlm || !POS.valid) return false;
+  const want = other(hlm.color), p = POS.grid[hlm.to];
+  if (want === POS.turn || !p || colorOf(p) !== hlm.color || POS.grid[hlm.from]) return false;
+  if (!validateFen(fenWithTurn(want)).ok) return false;
+  POS.lastSan = 'Turn from highlight';
+  commitPosition({ turn: want, ep: '-' });
+  return true;
+}
+// Squares a move touches, including the rook for castling (sites highlight king or rook squares).
+function moveCells(m) {
+  const cells = [m.from, m.to];
+  if (m.flags.includes('k') || m.flags.includes('q')) {
+    const rank = m.from[1], k = m.flags.includes('k');
+    cells.push((k ? 'h' : 'a') + rank, (k ? 'f' : 'd') + rank);
+  }
+  return cells.map((n) => sqToCell(sqIndex(n), POS.flipped));
+}
+// gate: the site marks the last move, so a move only counts once the highlight shows it
+// (while a piece is being dragged the old or partial highlight never matches).
+function trackMoves(obs, hlm, gate) {
   if (!hasChess() || !POS.valid || !POS.game) return null;
   const L = new Array(64);
   for (let cell = 0; cell < 64; cell++) {
@@ -1000,9 +1204,9 @@ function trackMoves(obs) {
     if (!m.promotion) return 0;
     const cell = sqToCell(sqIndex(m.to), POS.flipped);
     if (!promoCache[cell]) {
-      const col = m.color, pen = { q: 0, r: 1.5, b: 1.5, n: 1.2 };
+      const pen = { q: 0, r: 1.5, b: 1.5, n: 1.2 };
       if (cal.tpl && lastAnalysis) {
-        const sc = typeScores(lastAnalysis.cells[cell].shape, col);
+        const sc = typeScores(lastAnalysis.cells[cell].shape, m.color);
         const best = ['q', 'r', 'b', 'n'].reduce((a, t) => (sc[t.toUpperCase()] > sc[a.toUpperCase()] ? t : a), 'q');
         for (const t in pen) pen[t] = t === best ? 0 : 1.5;
       }
@@ -1010,12 +1214,22 @@ function trackMoves(obs) {
     }
     return promoCache[cell][m.promotion] || 0;
   };
+  // agreement with the site's last-move highlight
+  const hlBonus = (m) => {
+    if (!hlm) return 0;
+    const f = sqToCell(sqIndex(m.from), POS.flipped), t = sqToCell(sqIndex(m.to), POS.flipped);
+    if (f === hlm.from && t === hlm.to) return 4;
+    return m.color === hlm.color ? 0 : -3;
+  };
   const PLY = 2.5;
   const g = new window.Chess(POS.game.fen());
   const baseCodes = boardCodes(g);
   let best = { moves: [], score: score(baseCodes), codes: baseCodes, alt: false };
+  const hlCells = lastAnalysis && lastAnalysis.hl;
   const consider = (moves, codes, pen, alt) => {
-    const s = score(codes) - pen;
+    const last = moves[moves.length - 1];
+    if (gate) { if (!hlCells) return; const mc = moveCells(last); if (!hlCells.every((c) => mc.includes(c))) return; }
+    const s = score(codes) - pen + hlBonus(last);
     if (s > best.score) best = { moves: moves.slice(), score: s, codes, alt };
   };
   for (const m1 of g.moves({ verbose: true })) {
@@ -1028,45 +1242,95 @@ function trackMoves(obs) {
     }
     g.undo();
   }
-  // the toolbar turn may be wrong: also try one move by the other side
+  // the side-to-move flag may be wrong: also try one move by the other side
   const altFen = swapTurnFen(POS.game.fen()), ga = new window.Chess();
   if (ga.load(altFen)) {
-    // only legal if the side that would NOT be moving is not in check
     const chk = new window.Chess(); chk.load(swapTurnFen(altFen));
     if (!chk.in_check()) {
       for (const m of ga.moves({ verbose: true })) { ga.move(m); consider([m], boardCodes(ga), PLY + 1 + promoPen(m), true); ga.undo(); }
     }
   }
+  // hard disagreements only: borderline squares (faint pieces, glare) don't count
   let mismatch = 0;
   for (let cell = 0; cell < 64; cell++) {
     const o = obs[cell], v = best.codes[cellToSq(cell, POS.flipped)];
-    if ((v > 0) !== o.occ) mismatch++;
+    if ((v > 0) !== o.occ) { if (Math.abs(o.pOcc - 0.5) > 0.3) mismatch++; }
     else if (v > 0 && Math.abs(o.pW - 0.5) > 0.35 && (v === 1) !== o.white) mismatch++;
   }
   return { ...best, mismatch, startFen: best.alt ? altFen : POS.game.fen() };
 }
+// Full read of the board. Enforces what a legal position allows: <=16 pieces and <=8 pawns per
+// side, one king each, no pawns on the first/last rank. Returns null if it cannot.
 function classifyGrid(an, obs) {
-  const grid = new Array(64).fill(''), by = { w: [], b: [] }, scores = {};
-  for (let cell = 0; cell < 64; cell++) {
-    if (!obs[cell].occ) continue;
-    const col = obs[cell].white ? 'w' : 'b', sc = typeScores(an.cells[cell].shape, col), r = cell >> 3;
-    if (r === 0 || r === 7) sc.P = -9;
-    scores[cell] = sc; by[col].push(cell);
+  const col = obs.map((o) => (o.occ ? (o.white ? 'w' : 'b') : null));
+  const list = (c) => { const a = []; for (let i = 0; i < 64; i++) if (col[i] === c) a.push(i); return a; };
+  for (let guard = 0; guard < 64; guard++) {
+    const w = list('w'), b = list('b');
+    if (w.length <= 16 && b.length <= 16) break;
+    const bigC = w.length > 16 ? 'w' : 'b', big = bigC === 'w' ? w : b, small = bigC === 'w' ? b : w;
+    const unsure = big.reduce((a, i) => (Math.abs(obs[i].pW - 0.5) < Math.abs(obs[a].pW - 0.5) ? i : a));
+    if (small.length < 16 && Math.abs(obs[unsure].pW - 0.5) < 0.4) { col[unsure] = other(bigC); continue; }
+    col[big.reduce((a, i) => (obs[i].pOcc < obs[a].pOcc ? i : a))] = null;
   }
+  const by = { w: list('w'), b: list('b') };
   if (!by.w.length || !by.b.length) return null;
-  for (const col of ['w', 'b']) {
+  const grid = new Array(64).fill(''), scores = {};
+  let nccSum = 0, nccN = 0;
+  for (const c of ['w', 'b']) {
+    for (const cell of by[c]) {
+      const sc = typeScores(an.cells[cell].shape, c), r = cell >> 3;
+      if (r === 0 || r === 7) sc.P = -9;
+      scores[cell] = sc;
+    }
+    // pieces of one type in a set look identical: group matching silhouettes and let each group vote
+    // (complete linkage: a piece joins a group only if it matches every member; same-type pairs
+    // measure >= ~0.95, different types <= ~0.89)
+    const cells = by[c], groups = [];
+    for (const cell of cells) {
+      const g = groups.find((gr) => gr.every((o) => nccShift(an.cells[cell].shape, an.cells[o].shape) >= 0.92));
+      if (g) g.push(cell); else groups.push([cell]);
+    }
+    const groupOf = {};
+    for (const k in groups) for (const cell of groups[k]) groupOf[cell] = groups[k];
+    // exactly one king: the most king-like square that is not part of a group of identical pieces
     let kc = -1, kb = -Infinity;
-    for (const cell of by[col]) {
-      const sc = scores[cell], other = Math.max(sc.P, sc.N, sc.B, sc.R, sc.Q), rel = sc.K - other;
+    for (const cell of cells) {
+      const sc = scores[cell], rel = sc.K - Math.max(sc.P, sc.N, sc.B, sc.R, sc.Q) - (groupOf[cell].length > 1 ? 0.5 : 0);
       if (rel > kb) { kb = rel; kc = cell; }
     }
-    for (const cell of by[col]) {
-      let t = 'K';
-      if (cell !== kc) { t = 'P'; for (const k of ['N', 'B', 'R', 'Q']) if (scores[cell][k] > scores[cell][t]) t = k; }
-      grid[cell] = col === 'w' ? t : t.toLowerCase();
+    const type = { [kc]: 'K' };
+    for (const k in groups) {
+      const g = groups[k].filter((cell) => cell !== kc);
+      if (!g.length) continue;
+      const onBack = g.some((cell) => (cell >> 3) === 0 || (cell >> 3) === 7);
+      let t;
+      if (g.length >= 3 && !onBack) t = 'P';            // 3+ identical pieces: pawns (promotions aside)
+      else {
+        const sum = { P: 0, N: 0, B: 0, R: 0, Q: 0 };
+        for (const cell of g) for (const k2 in sum) sum[k2] += scores[cell][k2];
+        t = 'P';
+        for (const k2 of ['N', 'B', 'R', 'Q']) if (sum[k2] > sum[t]) t = k2;
+      }
+      for (const cell of g) type[cell] = t;
+    }
+    let pawns = by[c].filter((cell) => type[cell] === 'P');
+    while (pawns.length > 8) {
+      let worst = -1, margin = Infinity, alt = 'N';
+      for (const cell of pawns) {
+        const sc = scores[cell];
+        let a2 = 'N';
+        for (const k of ['B', 'R', 'Q']) if (sc[k] > sc[a2]) a2 = k;
+        if (sc.P - sc[a2] < margin) { margin = sc.P - sc[a2]; worst = cell; alt = a2; }
+      }
+      type[worst] = alt;
+      pawns = pawns.filter((x) => x !== worst);
+    }
+    for (const cell of by[c]) {
+      grid[cell] = c === 'w' ? type[cell] : type[cell].toLowerCase();
+      nccSum += scores[cell][type[cell]]; nccN++;
     }
   }
-  return grid;
+  return { grid, ncc: nccN ? nccSum / nccN : 0 };
 }
 function guessFlipped(grid) {
   let wy = 0, wn = 0, by = 0, bn = 0;
@@ -1079,41 +1343,81 @@ function guessFlipped(grid) {
 function onCapture(an) {
   lastAnalysis = an;
   if (an.conf < 0.72) { setScan('Grid misaligned: tap GRID', 'warn'); return; }
-  const obs = observe(an);
+  const obs = observe(an), hlm = highlightMove(an, obs);
   const sp = startPattern(an);
   if (sp) {
+    pendingResync = null; forceResync = false;
     learnFromStart(an, sp.flipped);
     if (!POS.known || !isStartGrid() || POS.flipped !== sp.flipped) {
-      POS.flipped = sp.flipped; POS.orientationKnown = true; POS.lastSan = 'New game';
+      POS.flipped = sp.flipped; POS.orientationKnown = true; POS.lastSan = 'New game'; POS.trusted = true;
       commitPosition({ grid: boardToGrid(boardFromPlacement(START_PLACEMENT), sp.flipped), turn: 'w', castling: 'KQkq', ep: '-', half: 0, full: 1 });
       feedback();
       setScan('Start position: piece set learned ✓');
     } else setScan('Stable ✓');
     return;
   }
+  if (an.hl) hlSeen++;
+  const gate = hlSeen >= 2;
   if (!forceResync) {
-    const tr = trackMoves(obs);
-    if (tr) {
-      if (!tr.moves.length && tr.mismatch <= 2) { setScan(tr.mismatch ? 'Stable (1–2 squares uncertain)' : 'Stable ✓'); return; }
-      if (tr.moves.length && tr.mismatch <= 2) {
-        const g = new window.Chess(tr.startFen);
-        const sans = tr.moves.map((m) => (g.move(m) || {}).san).filter(Boolean);
-        applyGameFen(g.fen(), sans.join(' '));
-        feedback();
-        setScan('Move: ' + sans.join(' '));
+    const tr = trackMoves(obs, hlm, gate);
+    // "no change" tolerates one noisy square; a move explanation tolerates two
+    if (tr && tr.mismatch <= (tr.moves.length ? 2 : 1)) {
+      pendingResync = null; holdCount = 0;
+      if (!tr.moves.length) {
+        const fixed = fixTurnFromHighlight(hlm);
+        if (!tr.mismatch && POS.trusted) learnOnline(an);
+        setScan(fixed ? 'Side to move corrected' : tr.mismatch ? 'Stable (1 square uncertain)' : 'Stable ✓');
         return;
       }
+      const g = new window.Chess(tr.startFen);
+      const sans = tr.moves.map((m) => (g.move(m) || {}).san).filter(Boolean);
+      applyGameFen(g.fen(), sans.join(' '));
+      fixTurnFromHighlight(hlm);
+      if (!tr.mismatch && POS.trusted) learnOnline(an);
+      feedback();
+      setScan('Move: ' + sans.join(' '));
+      return;
+    }
+    // the board changed but the site hasn't marked a finished move yet (piece still in hand): wait
+    if (tr && gate && !an.hl && holdCount < 4) {
+      holdCount++;
+      recheckAt = performance.now() + 2 * CFG.TICK_MS;
+      setScan('Waiting for the move to finish…');
+      return;
     }
   }
-  forceResync = false;
-  const grid = classifyGrid(an, obs);
-  if (!grid) { setScan('Unrecognized board', 'warn'); return; }
-  if (!POS.orientationKnown) POS.flipped = guessFlipped(grid);
-  const b = gridToBoard(grid, POS.flipped);
-  POS.lastSan = 'Re-sync';
-  commitPosition({ grid, castling: inferCastling(b), ep: '-', half: 0, full: 1 }, { autoTurn: true });
+  holdCount = 0;
+  resync(an, obs, hlm);
+}
+// Re-read the whole board. The result must be a legal position and must be read the same way
+// twice in a row before it replaces the current one, so a hand, a dragged piece or a pop-up never
+// turns into a bogus position.
+function resync(an, obs, hlm) {
+  const res = classifyGrid(an, obs);
+  if (!res) { pendingResync = null; setScan('Scan unclear: hold steady', 'warn'); return; }
+  if (cal.tpl && res.ncc < 0.35) { pendingResync = null; setScan('Scan unclear: pieces not recognised', 'warn'); return; }
+  const flipped = POS.orientationKnown ? POS.flipped : guessFlipped(res.grid);
+  let turn = POS.turn;
+  if (hlm) turn = other(hlm.color);
+  else if (POS.known) { const m = moverFromDiff(POS.grid, res.grid); if (m) turn = other(m); }
+  const board = gridToBoard(res.grid, flipped), castling = inferCastling(board), pl = placementFromBoard(board);
+  let v = validateFen(`${pl} ${turn} ${castling} - 0 1`);
+  if (!v.ok && v.oppInCheck) { turn = other(turn); v = validateFen(`${pl} ${turn} ${castling} - 0 1`); }
+  if (!v.ok) { pendingResync = null; setScan('Scan unclear: ' + v.reason.toLowerCase(), 'warn'); return; }
+  if (!pendingResync || pendingResync.flipped !== flipped || gridDiff(pendingResync.grid, res.grid) > 1) {
+    const tries = pendingResync ? pendingResync.tries + 1 : 1;
+    if (tries > 4) { pendingResync = null; forceResync = false; setScan('Scan unstable: hold steady', 'warn'); return; }
+    pendingResync = { grid: res.grid, flipped, tries };
+    recheckAt = performance.now() + 2 * CFG.TICK_MS;
+    setScan('Verifying board…');
+    return;
+  }
+  pendingResync = null; forceResync = false;
+  POS.flipped = flipped; POS.lastSan = 'Re-sync';
+  POS.trusted = !!cal.tpl && res.ncc >= 0.6;
+  commitPosition({ grid: res.grid, turn, castling, ep: '-', half: 0, full: 1 });
   feedback();
-  setScan(cal.tpl ? 'Re-synced from scan' : 'Best guess: tap squares to fix', cal.tpl ? '' : 'warn');
+  setScan(cal.tpl ? 'Re-synced ✓' : 'Best guess: tap squares to fix', cal.tpl ? '' : 'warn');
 }
 
 // ======================================================================
@@ -1483,21 +1787,76 @@ window.addEventListener('pointercancel', endDrag);
 function enterCalibration() {
   cal.calibrating = true; cal.locked = false;
   if (!cal.corners) cal.corners = (SRC.kind === 'sim' ? Sim.corners() : (recall(CFG.LS_CORNERS) || defaultCorners()));
-  $('calib').hidden = false; $('panel').hidden = true; closeEditor();
+  $('calib').hidden = false; closeEditor();
   $('calBtn').classList.add('on');
   setScan(SRC.kind === 'sim' ? 'Demo: tap Lock grid' : 'Align the 4 corners');
-  renderAR();
+  layoutView();
 }
 function lockCalibration() {
   cal.calibrating = false; cal.locked = true;
   store(CFG.LS_CORNERS, cal.corners);
-  $('calib').hidden = true; $('panel').hidden = false; arDots.textContent = '';
+  $('calib').hidden = true; arDots.textContent = '';
   $('calBtn').classList.remove('on');
   DEB.prev = null; DEB.ref = null; DEB.state = 'idle'; DEB.stableSince = 0;
+  pendingResync = null; recheckAt = 0;
   forceCapture = true;
   setScan('Reading board…');
+  layoutView();
+  if (!camHidden) toast('Tip: “Hide camera” (or ✕ on the preview) to focus on the engine board', 3500);
+}
+
+// ---------- engine view layout: big board + HUD, camera as a small (hideable) preview ----------
+let camHidden = recall(CFG.LS_CAM) === true;
+function layoutView() {
+  const ev = cal.locked && !cal.calibrating;
+  $('main').hidden = !ev;
+  document.body.classList.toggle('camHidden', camHidden);
+  $('camToggle').textContent = camHidden ? 'Show cam' : 'Hide cam';
+  pipMap = null;
+  video.removeAttribute('style'); simCv.removeAttribute('style');
+  if (!ev) { stageEl.className = ''; stageEl.removeAttribute('style'); renderAR(); return; }
+  const main = $('main'), lower = $('lower'), slot = $('pipSlot');
+  const mr = main.getBoundingClientRect(), land = mr.width > mr.height;
+  // preview crop: the calibrated board plus a margin, in source pixels
+  let bb = { x: 0, y: 0, w: SRC.w || 16, h: SRC.h || 9 };
+  if (cal.corners && SRC.w) {
+    const xs = cal.corners.map((p) => p[0] * SRC.w), ys = cal.corners.map((p) => p[1] * SRC.h);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), m = 0.12 * Math.max(x1 - x0, y1 - y0);
+    const bx0 = Math.max(0, x0 - m), by0 = Math.max(0, y0 - m), bx1 = Math.min(SRC.w, x1 + m), by1 = Math.min(SRC.h, y1 + m);
+    if (bx1 - bx0 > 8 && by1 - by0 > 8) bb = { x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0 };
+  }
+  const aspect = bb.w / bb.h;
+  let w, h;
+  if (land) {
+    const lw = Math.min(mr.width * 0.44, 440);
+    lower.style.width = lw + 'px'; lower.style.height = '';
+    w = lw; h = w / aspect;
+    if (h > mr.height * 0.5) { h = mr.height * 0.5; w = h * aspect; }
+  } else {
+    const lh = clamp(mr.height - (mr.width - 16) - 10, 130, mr.height * 0.42);
+    lower.style.height = lh + 'px'; lower.style.width = '';
+    h = lh; w = h * aspect;
+    if (w > mr.width * 0.42) { w = mr.width * 0.42; h = w / aspect; }
+  }
+  slot.style.width = w + 'px'; slot.style.height = h + 'px';
+  const ba = $('boardArea').getBoundingClientRect();
+  document.documentElement.style.setProperty('--bs', Math.max(120, Math.floor(Math.min(ba.width - 16, ba.height))) + 'px');
+  if (camHidden) { stageEl.className = 'gone'; stageEl.removeAttribute('style'); }
+  else {
+    const r = slot.getBoundingClientRect();
+    stageEl.className = 'pip';
+    stageEl.style.cssText = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+    if (SRC.el && SRC.w) {
+      const k = r.width / bb.w;
+      pipMap = { s: k, ox: -bb.x * k, oy: -bb.y * k, W: r.width, H: r.height };
+      SRC.el.style.cssText = `left:${pipMap.ox}px;top:${pipMap.oy}px;width:${SRC.w * k}px;height:${SRC.h * k}px;object-fit:fill`;
+    }
+  }
   renderAR();
 }
+function setCamHidden(v) { camHidden = v; store(CFG.LS_CAM, v); layoutView(); }
+$('camToggle').addEventListener('click', () => setCamHidden(!camHidden));
+$('pipHide').addEventListener('click', () => setCamHidden(true));
 $('calLock').addEventListener('click', lockCalibration);
 $('calReset').addEventListener('click', () => {
   cal.corners = SRC.kind === 'sim' ? Sim.corners() : defaultCorners();
@@ -1546,7 +1905,7 @@ let edCell = -1;
       if (edCell < 0) return;
       const grid2 = POS.grid.slice(); grid2[edCell] = p;
       learnCell(edCell, p);
-      POS.lastSan = 'Edited ' + sqName(cellToSq(edCell, POS.flipped));
+      POS.lastSan = 'Edited ' + sqName(cellToSq(edCell, POS.flipped)); POS.trusted = true;
       commitPosition({ grid: grid2, castling: inferCastling(gridToBoard(grid2, POS.flipped)), ep: '-' }, { autoTurn: true });
       markEditor();
     });
@@ -1556,7 +1915,7 @@ let edCell = -1;
     const a = e.target.closest('[data-act]'); if (!a) return;
     if (a.dataset.act === 'close') closeEditor();
     if (a.dataset.act === 'start') {
-      POS.orientationKnown = true; POS.lastSan = 'Start position';
+      POS.orientationKnown = true; POS.lastSan = 'Start position'; POS.trusted = true;
       commitPosition({ grid: boardToGrid(boardFromPlacement(START_PLACEMENT), POS.flipped), turn: 'w', castling: 'KQkq', ep: '-', half: 0, full: 1 });
       closeEditor();
     }
@@ -1602,7 +1961,7 @@ async function startCamera() {
   const constraints = { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } };
   if (facing) constraints.video.facingMode = facing;
   stream = await navigator.mediaDevices.getUserMedia(constraints);
-  const track = stream.getVideoTracks()[0];
+  const track = camTrack = stream.getVideoTracks()[0] || null;
   if (track) track.addEventListener('ended', () => { if (running && SRC.kind === 'camera') { pause(); toast('Camera stopped. Tap ▶ to resume', 4000); } });
   video.srcObject = stream;
   video.hidden = false; simCv.hidden = true;
@@ -1617,7 +1976,26 @@ async function startCamera() {
   });
   SRC.kind = 'camera'; SRC.el = video; refreshSourceSize();
 }
+// Screens are bright: if the board's light squares clip to white (white pieces vanish into them),
+// step exposure compensation down where the browser allows it (Chrome on Android; iOS ignores this).
+let camTrack = null, expoT = 0;
+function tuneExposure(an) {
+  if (!camTrack || SRC.kind !== 'camera' || typeof camTrack.getCapabilities !== 'function') return;
+  const now = performance.now();
+  if (now - expoT < 1500) return;
+  let ec, cur;
+  try { ec = camTrack.getCapabilities().exposureCompensation; cur = camTrack.getSettings().exposureCompensation; } catch (e) { return; }
+  if (!ec || !(ec.max > ec.min) || typeof cur !== 'number') return;
+  const step = ec.step || (ec.max - ec.min) / 24;
+  let next = cur;
+  if (an.lightSq > 246) next = Math.max(ec.min, cur - 2 * step);
+  else if (an.lightSq < 175 && cur < 0) next = Math.min(0, cur + step);
+  if (next === cur) return;
+  expoT = now;
+  camTrack.applyConstraints({ advanced: [{ exposureCompensation: next }] }).catch(() => {});
+}
 function stopCamera() {
+  camTrack = null;
   if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
   video.srcObject = null;
 }
@@ -1655,9 +2033,8 @@ async function start() {
   $('icoPlay').setAttribute('hidden', ''); $('icoPause').removeAttribute('hidden');
   Engine.resume();
   Engine.init();
-  if (cal.locked) { $('panel').hidden = false; forceCapture = true; DEB.prev = null; setScan('Watching'); }
+  if (cal.locked) { forceCapture = true; DEB.prev = null; setScan('Watching'); layoutView(); }
   else enterCalibration();
-  renderAR();
   lastTick = 0; fpsT0 = 0; cvPrevT = 0;
   rafId = requestAnimationFrame(frame);
 }
@@ -1701,29 +2078,33 @@ function tick(now) {
   const pw = SRC.w, ph = SRC.h;
   refreshSourceSize();
   if (pw !== SRC.w || ph !== SRC.h || stageEl.clientWidth !== lastW || stageEl.clientHeight !== lastH) {
-    lastW = stageEl.clientWidth; lastH = stageEl.clientHeight; renderAR();
+    layoutView(); lastW = stageEl.clientWidth; lastH = stageEl.clientHeight;
   }
   if (!cal.calibrating && !cal.locked) return;
+  // second read requested by a pending re-sync (skipped while things are still moving)
+  if (recheckAt && now >= recheckAt && DEB.state !== 'moving') { recheckAt = 0; forceCapture = true; }
   const img = grabAndWarp();
   if (!img) return;
-  if (cal.calibrating) { const an = analyzeGrid(img); lastAnalysis = an; drawPreview(an); return; }
+  if (cal.calibrating) { const an = analyzeGrid(img); lastAnalysis = an; drawPreview(an); tuneExposure(an); return; }
   const sig = signature(img);
   const ev = debounceStep(sig, now);
   if (forceCapture || ev === 'capture') {
     forceCapture = false;
     DEB.ref = sig;
-    onCapture(analyzeGrid(img));
+    const an = analyzeGrid(img);
+    onCapture(an);
+    tuneExposure(an);
   } else if (ev === 'spike' || ev === 'moving') setScan('Motion…');
-  else if (ev === 'settling') setScan(`Settling ${((CFG.STABLE_MS - (now - DEB.stableSince)) / 1000).toFixed(1)} s`);
+  else if (ev === 'settling') setScan('Settling…');
 }
 
 // ---------- environment events ----------
 function onResize() {
-  if (Sim.active && SRC.kind === 'sim') {
+  if (Sim.active && SRC.kind === 'sim' && (Sim.winW !== window.innerWidth || Sim.winH !== window.innerHeight)) {
     Sim.layout(); refreshSourceSize();
     cal.corners = Sim.corners();
   }
-  renderAR();
+  layoutView();
 }
 window.addEventListener('resize', onResize);
 window.addEventListener('orientationchange', () => setTimeout(onResize, 250));
@@ -1733,7 +2114,7 @@ document.addEventListener('visibilitychange', () => {
     if (SRC.kind === 'camera' && video.paused) video.play().catch(() => {});
   }
 });
-video.addEventListener('resize', () => { refreshSourceSize(); renderAR(); });
+video.addEventListener('resize', () => { refreshSourceSize(); layoutView(); });
 
 // ---------- boot ----------
 loadScript(CFG.CHESSJS_CDNS)
@@ -1741,7 +2122,7 @@ loadScript(CFG.CHESSJS_CDNS)
   .catch((e) => { console.warn('[chess.js]', e); toast('chess.js unavailable: move tracking off, scan-only mode', 4000); });
 renderBoard(); renderTurn(); renderFen(); setMode('idle');
 if (!window.isSecureContext) toast('Open over HTTPS to enable the camera (GitHub Pages is HTTPS).', 5000);
-if (PARAMS.get('debug') === '1') window.ChessLens = { POS, cal, DEB, Engine, Sim, assembleFen, get lastAnalysis() { return lastAnalysis; } };
+if (PARAMS.get('debug') === '1') window.ChessLens = { POS, cal, DEB, Engine, Sim, assembleFen, nccShift, get lastAnalysis() { return lastAnalysis; } };
 })();
 </script>
 </body>
